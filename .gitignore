@@ -30,3 +30,13 @@
 *.exe
 *.out
 *.app
+
+# Working documents (formal specs live in /specs)
+docs/
+
+# Benchmark outputs
+benchmarks/
+
+# Claude Code local settings
+.claude/
+CLAUDE.md
