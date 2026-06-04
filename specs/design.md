@@ -30,19 +30,23 @@ curbit：bitmap[idx]，即idx当前所指的那1位。用于控制输出翻转�
 
 curbyte：idx所在字节的8位，即bitmap[idx/8]的完整8位。高4位为操作码，低4位为参数。每步执行。
 
-sel：基底选择信号。byte_idx = idx / 8，bit_pos = idx % 8，sel = (bitmap[byte_idx] >> bit_pos) & 0x0F。从idx所指位开始，在同一字节内向下取4位。若bit_pos > 4，有效位不足4位，低位补零。
+sel0：基底选择信号。byte_idx = idx / 8，bit_pos = idx % 8，sel0 = (bitmap[byte_idx] >> bit_pos) & 0x0F。从idx所指位开始，在同一字节内向下取4位。若bit_pos > 4，有效位不足4位，低位补零。
 
-基底LFSR：16条独立的64位LFSR，编号0~15。多项式作为系统参数预设。每步所有16条LFSR各自移位一次，sel选择其中一条的输出作为raw。
+sel1：第二基底选择信号。从同一字节的 bit_pos−4 位置开始向下取 4 位。若 bit_pos < 4，高位不足 4 位时低位补零（即 sel1 = 0）。取法同 sel0，偏移 4 位。
+
+基底LFSR：16条独立的64位LFSR，编号0~15。多项式作为系统参数预设。每步所有16条LFSR各自移位一次。取 sel0 和 sel1 两条 LFSR 的输出异或后，乘以常数 0x9E3779B97F4A7C15 进行位混合，再与 {64{curbit}} 异或得到最终输出。
 
 
 4. 每步操作
 
 1. curbit = bitmap[idx]
-2. sel = (bitmap[idx/8] >> (idx % 8)) & 0x0F
-3. 全部16条LFSR各移位一次，raw = L_sel 的当前输出
-4. output = raw XOR {64{curbit}}
-5. 将curbyte作为指令执行
-6. idx按当前指令更新，或默认 idx = (idx + 1) mod 256
+2. sel0 = (bitmap[idx/8] >> (idx % 8)) & 0x0F
+3. sel1 = (bitmap[idx/8] >> ((idx % 8) − 4)) & 0x0F（同字节，高位不足4位时低位补零）
+4. 全部16条LFSR各移位一次
+5. raw = (L_sel0 ^ L_sel1) × 0x9E3779B97F4A7C15（乘性混合，打破字内位关联）
+6. output = raw XOR {64{curbit}}
+7. 将curbyte作为指令执行
+8. idx按当前指令更新，或默认 idx = (idx + 1) mod 256
 
 
 5. 指令集

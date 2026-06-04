@@ -68,22 +68,24 @@ void hlfsr64::init(const u8 bm[32], const u8 seed[32], u8 idx_init) {
 }
 
 // ============================================================
-// LFSR 推进 (Fibonacci 结构，16条全部推进)
+// LFSR 推进 (Fibonacci 结构, 双路选通 + 乘性混合)
 // ============================================================
-hlfsr64::u64 hlfsr64::advance_lfsr(u8 sel) {
-    u64 result = 0;
+hlfsr64::u64 hlfsr64::advance_lfsr(u8 s0, u8 s1) {
+    u64 v0 = 0, v1 = 0;
     for (int i = 0; i < 16; i++) {
         u64 s   = m_lfsr[i];
-        u64 tap = s & (POLY[i] & 0x7FFFFFFFFFFFFFFFULL); // 低63位为抽头
+        u64 tap = s & (POLY[i] & 0x7FFFFFFFFFFFFFFFULL);
         u64 fb  = parity64(tap);
         m_lfsr[i] = (s << 1) | fb;
 
-        // 常数时间选取：sel==i 则取该 LFSR 输出
-        u8  match = ct_eq8(sel, (u8)i);
-        u64 mask  = 0ULL - (match & 1);
-        result   |= m_lfsr[i] & mask;
+        u64 v  = m_lfsr[i];
+        u8  m0 = ct_eq8(s0, (u8)i) & 1;
+        u8  m1 = ct_eq8(s1, (u8)i) & 1;
+        v0 |= v & (0ULL - m0);
+        v1 |= v & (0ULL - m1);
     }
-    return result;
+    u64 mixed = v0 ^ v1;
+    return mixed * 0x9E3779B97F4A7C15ULL;  // 64×64 乘性混合打破字内位关联
 }
 
 // ============================================================
@@ -96,17 +98,18 @@ hlfsr64::u64 hlfsr64::next() {
     u8 curbyte  = m_bitmap[byte_idx];
     u8 curbit   = (curbyte >> bit_pos) & 1;
     u8 sel      = (curbyte >> bit_pos) & 0x0F;
+    u8 sel1     = (bit_pos >= 4) ? ((curbyte >> (bit_pos - 4)) & 0x0F) : 0;
+    u8 opcode   = curbyte >> 4;
+    u8 param    = curbyte & 0x0F;
 
-    // ---- 2. 推进 LFSR，取 raw ----
-    u64 raw = advance_lfsr(sel);
+    // ---- 2. 双路选通 + ARX 混合 ----
+    u64 raw = advance_lfsr(sel, sel1);
 
     // ---- 3. 输出 = raw XOR {64{curbit}} ----
-    u64 curbit_mask = 0ULL - curbit;  // 0 或 0xFFFF...
+    u64 curbit_mask = 0ULL - curbit;
     u64 output = raw ^ curbit_mask;
 
-    // ---- 4. 指令译码与执行 ----
-    u8 opcode = curbyte >> 4;
-    u8 param  = curbyte & 0x0F;
+    // ---- 4. 指令执行 ----
 
     // 操作目标
     u8 target_idx = (byte_idx + 1) & 31;
