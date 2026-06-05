@@ -63,10 +63,10 @@ int main() {
     if (!f) { std::fprintf(stderr, "无法创建 %s\n", path); return 1; }
 
     // 随机密钥材料
-    hlfsr64::u8 bm[32], seed[32], idx;
-    if (RAND_bytes(bm, 32) != 1 ||
+    hlfsr64::u8 bm[64], seed[32]; hlfsr64::u16 idx;
+    if (RAND_bytes(bm, 64) != 1 ||
         RAND_bytes(seed, 32) != 1 ||
-        RAND_bytes(&idx, 1) != 1) {
+        RAND_bytes((unsigned char*)&idx, 2) != 1) {
         LOG(f, "RAND_bytes 失败\n");
         std::fclose(f); return 1;
     }

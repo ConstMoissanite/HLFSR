@@ -291,8 +291,8 @@ static void multi_round(std::FILE* f, int rounds, bool hlfsr) {
 
     for(int r=0;r<rounds;r++){
         if(hlfsr){
-            hlfsr64::u8 bm[32],seed[32],idx;
-            RAND_bytes(bm,32); RAND_bytes(seed,32); RAND_bytes(&idx,1);
+            hlfsr64::u8 bm[64],seed[32]; hlfsr64::u16 idx;
+            RAND_bytes(bm,64); RAND_bytes(seed,32); RAND_bytes((unsigned char*)&idx,2);
             hlfsr64 c; c.init(bm,seed,idx);
             c.keystream(buf,sbytes);
         } else {
