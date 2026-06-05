@@ -89,6 +89,50 @@ hlfsr64::u64 hlfsr64::next() {
 
 void hlfsr64::keystream(void* out, std::size_t bytes) {
     u8* p = static_cast<u8*>(out);
+
+    // 16 步批处理：利用矩阵行间无 RAW 依赖
+    while (bytes >= 128) { // 16 × 8 bytes
+        // 1. 预解码当前矩阵的全部 16 个指令字
+        u8  pv[16], s0[16], s1[16], s2[16], cb[16];
+        for (int i = 0; i < 16; i++) {
+            u8 row = ((m_idx + i) >> 4) & 15;
+            u8 bb  = row << 1;
+            u16 cw = (u16)m_matrix[bb] | ((u16)m_matrix[(bb+1)&31] << 8);
+            pv[i]  = cw >> 12;
+            s0[i]  = (cw >> 8) & 0xF;
+            s1[i]  = (cw >> 4) & 0xF;
+            s2[i]  = cw & 0xF;
+            cb[i]  = m_matrix[bb] & 1;
+        }
+
+        // 2. 16 步 LFSR 推进 + 输出
+        u64 raw[16], out[16];
+        for (int s = 0; s < 16; s++) raw[s] = advance_lfsr(s0[s], s1[s], s2[s]);
+        for (int s = 0; s < 16; s++) out[s] = raw[s] ^ (0ULL - cb[s]);
+
+        // 3. 写回矩阵（16 个不同行，互不冲突）
+        for (int i = 0; i < 16; i++) {
+            u8  row = ((m_idx + i) >> 4) & 15;
+            u8  bb  = row << 1;
+            u16 rv  = (u16)m_matrix[bb] | ((u16)m_matrix[(bb+1)&31] << 8);
+            rv ^= (u16)(raw[i] & 0xFFFF);
+            rv  = rol16(rv, pv[i]);
+            m_matrix[bb]           = (u8)rv;
+            m_matrix[(bb+1)&31]    = (u8)(rv >> 8);
+        }
+
+        // 4. 输出 128 字节
+        for (int i = 0; i < 16; i++) {
+            u64 b = out[i];
+            p[0]=(u8)b; p[1]=(u8)(b>>8); p[2]=(u8)(b>>16); p[3]=(u8)(b>>24);
+            p[4]=(u8)(b>>32); p[5]=(u8)(b>>40); p[6]=(u8)(b>>48); p[7]=(u8)(b>>56);
+            p += 8;
+        }
+        m_idx = (m_idx + 16) & 0xFF;
+        bytes -= 128;
+    }
+
+    // 尾部不足 128 字节：单步处理
     while (bytes >= 8) {
         u64 b = next(); p[0]=(u8)b; p[1]=(u8)(b>>8); p[2]=(u8)(b>>16); p[3]=(u8)(b>>24);
         p[4]=(u8)(b>>32); p[5]=(u8)(b>>40); p[6]=(u8)(b>>48); p[7]=(u8)(b>>56);
