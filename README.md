@@ -1,42 +1,40 @@
 # HLFSR-64
 
-密钥驱动的自修改流密码核心。256 位内部状态（bitmap）同时作为数据存储器和指令存储器。8 位比特游标（idx）在 bitmap 上滑动；当前位控制输出翻转，当前字节中 4 位作为基底选择信号，驱动 16 条基底 LFSR 之一产生 64 位输出。bitmap 中嵌入的指令每步执行，动态改写 bitmap 自身和控制流。
+密钥驱动的流密码核心。512 位 8×8×8 矩阵 + 8 条 64 位 Galois LFSR + 1 字节掩码直接选通。64 位输出/步，乘性混合，面隔离批处理，1.2 GB/s。
 
 ## 设计要点
 
 | 参数 | 值 |
 |------|-----|
-| 内部状态 (bitmap) | 256 位 (32 字节) |
-| 基底 LFSR | 16 条 × 64 位 |
+| 矩阵 | 8×8×8 (512 bits = 64 bytes) |
+| LFSR | 8 × 64-bit Galois |
 | 输出宽度 | 64 位/步 |
-| 指令集 | 16 条，4-bit 操作码 + 4-bit 参数 |
-| 指令执行 | 每步执行 |
+| 选通 | 8 位掩码 = 矩阵一行 |
+| 混合 | 三路 XOR + 64×64 乘 (0x9E3779B97F4A7C15) |
+| 吞吐 | 1.2 GB/s (纯 C++) |
 | 等效密钥安全 | 256 位 |
-| 多项式 | 16 个 64 次本原多项式（权重 7） |
 
-- **自修改状态机**：bitmap 既是数据也是指令存储器，每步 curbyte 的高 4 位为操作码、低 4 位为参数
-- **非规则 LFSR 交织**：sel 从 bitmap 动态取值，16 条 LFSR 每步全体推进，sel 选择输出源
-- **curbit 翻转**：输出 = raw XOR {64{curbit}}，打破 LFSR 输出的直接可观测性
-- **常数时间**：16 条指令全算 + 掩码选择，无秘密依赖分支
-- **零平台依赖**：C++11 标准库即可，KDF 由调用方选择
+- **最小化设计**：无指令 ISA，无 ct_eq8 比较，一行字节 = 完整选通逻辑
+- **面隔离**：8 面独立，8 步批处理无 RAW 冲突
+- **Galois LFSR**：移位 + 条件 XOR，比 Fibonacci 少 60% 运算
+- **常数时间**：无秘密依赖分支
+- **零平台依赖**：C++14 标准库即可
 
 ## 快速开始
 
 ```cpp
 #include "src/hlfsr64.hpp"
 
-// 1. 外部 KDF 派生密钥材料
-uint8_t bitmap[32], lfsr_seed[32], idx_init;
-your_kdf(master_key, nonce, bitmap, lfsr_seed, &idx_init);
+// 1. 外部 KDF 派生 (matrix: 64B, lfsr_seed: 32B, idx: u16)
+uint8_t matrix[64], lfsr_seed[32]; uint16_t idx;
+your_kdf(key, nonce, matrix, lfsr_seed, &idx);
 
 // 2. 初始化
 hlfsr64 cipher;
-cipher.init(bitmap, lfsr_seed, idx_init);
+cipher.init(matrix, lfsr_seed, idx);
 
 // 3. 加密/解密
-cipher.keystream(ciphertext, plaintext_len);
-// 或单步
-uint64_t block = cipher.next();
+cipher.keystream(buf, len);
 ```
 
 编译：`g++ -std=c++14 -O2 src/hlfsr64.cpp your_app.cpp`
