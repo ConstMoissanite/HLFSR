@@ -45,7 +45,7 @@ sel1：第二基底选择信号。从同一字节的 bit_pos−4 位置开始向
 4. 全部16条LFSR各移位一次
 5. raw = (L_sel0 ^ L_sel1) × 0x9E3779B97F4A7C15（乘性混合，打破字内位关联）
 6. output = raw XOR {64{curbit}}
-7. 将curbyte作为指令执行
+7. 将curbyte作为指令执行。步进/跳转指令（StpB/Stpb/RStpB/RStpb/JmpBL/JmpBR）额外将 output 低 8 位异或进目标字节，确保每步都修改 bitmap
 8. idx按当前指令更新，或默认 idx = (idx + 1) mod 256
 
 

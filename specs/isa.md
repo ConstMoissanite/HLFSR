@@ -42,13 +42,13 @@ param=0 翻转 bit0。
 param=0 翻转 bit7。与 Copb 索引反向。
 
 ### StpB (0100) / RStpB (0110)
-以字节为单位跳步进/退，`idx = (idx ± param × 8) & 0xFF`。
+以字节为单位跳步进/退，`idx = (idx ± param × 8) & 0xFF`。步进/跳转指令额外将本步输出低 8 位异或进目标字节：`bitmap[target] ^= output & 0xFF`。
 
 ### Stpb (0101) / RStpb (0111)
-以比特为单位，`idx = (idx ± param) & 0xFF`。
+以比特为单位，`idx = (idx ± param) & 0xFF`。同样额外执行 `bitmap[target] ^= output & 0xFF`。
 
 ### JmpBL (1000) / JmpBR (1001)
-无条件跳转。curbyte[7] 或 curbyte[0] 选择半区（0=0~127, 1=128~255），param 为半区内字节偏移 (0~15)，乘 8 得比特地址。
+无条件跳转。curbyte[7] 或 curbyte[0] 选择半区（0=0~127, 1=128~255），param 为半区内字节偏移 (0~15)，乘 8 得比特地址。跳转指令额外将本步输出低 8 位异或进目标字节：`bitmap[target] ^= output & 0xFF`。
 ```
 half = opcode[0] ? curbyte[7] : curbyte[0]    // JmpBL 取 bit7, JmpBR 取 bit0
 idx  = half × 128 + param × 8

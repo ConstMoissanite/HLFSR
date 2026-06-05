@@ -102,7 +102,7 @@ hlfsr64::u64 hlfsr64::next() {
     u8 opcode   = curbyte >> 4;
     u8 param    = curbyte & 0x0F;
 
-    // ---- 2. 双路选通 + ARX 混合 ----
+    // ---- 2. 双路选通 + 乘性混合 ----
     u64 raw = advance_lfsr(sel, sel1);
 
     // ---- 3. 输出 = raw XOR {64{curbit}} ----
@@ -157,23 +157,23 @@ hlfsr64::u64 hlfsr64::next() {
     vs[3] = old_self;
     vr[3] = old_remote;
 
-    // StpB (4): 不改 bitmap
-    vt[4] = old_target; vs[4] = old_self; vr[4] = old_remote;
+    // StpB (4): idx步进, target ^= output[7:0]
+    vt[4] = old_target ^ (u8)output; vs[4]=old_self; vr[4]=old_remote;
 
-    // Stpb (5): 不改 bitmap
-    vt[5] = old_target; vs[5] = old_self; vr[5] = old_remote;
+    // Stpb (5): idx步进, target ^= output[7:0]
+    vt[5] = old_target ^ (u8)output; vs[5]=old_self; vr[5]=old_remote;
 
-    // RStpB (6): 不改 bitmap
-    vt[6] = old_target; vs[6] = old_self; vr[6] = old_remote;
+    // RStpB (6): idx步退, target ^= output[7:0]
+    vt[6] = old_target ^ (u8)output; vs[6]=old_self; vr[6]=old_remote;
 
-    // RStpb (7): 不改 bitmap
-    vt[7] = old_target; vs[7] = old_self; vr[7] = old_remote;
+    // RStpb (7): idx步退, target ^= output[7:0]
+    vt[7] = old_target ^ (u8)output; vs[7]=old_self; vr[7]=old_remote;
 
-    // JmpBL (8): 不改 bitmap
-    vt[8] = old_target; vs[8] = old_self; vr[8] = old_remote;
+    // JmpBL (8): 跳转, target ^= output[7:0]
+    vt[8] = old_target ^ (u8)output; vs[8]=old_self; vr[8]=old_remote;
 
-    // JmpBR (9): 不改 bitmap
-    vt[9] = old_target; vs[9] = old_self; vr[9] = old_remote;
+    // JmpBR (9): 跳转, target ^= output[7:0]
+    vt[9] = old_target ^ (u8)output; vs[9]=old_self; vr[9]=old_remote;
 
     // XorB (10): target ^= param
     vt[10] = old_target ^ param;
