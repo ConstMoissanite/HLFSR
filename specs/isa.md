@@ -81,11 +81,11 @@ bitmap[idx/8] = local ^ remote;
 **不改变 idx**（若无其他改变，走默认 +1）。
 
 ### NotB (1111)
-与 CurB 相同的 offset 计算，对目标字节按位取反。强制 `idx += 8`。
+与 CurB 相同的 offset 计算。读取 `bitmap[(idx/8+offset) mod 32]` 按位取反，写回 **target**。强制 `idx += 8`。
 ```
 offset = (param & 8) ? (param | 0xF0) : param
-t = (idx/8 + offset) & 31
-bitmap[t] = ~bitmap[t]
+src = (idx/8 + offset) & 31
+bitmap[target] = ~bitmap[src]
 idx = (idx + 8) & 0xFF
 ```
 
