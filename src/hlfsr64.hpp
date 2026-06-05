@@ -22,8 +22,8 @@ public:
     void keystream(void* out, std::size_t bytes);
 
 private:
-    // 推进全部 16 条 LFSR，双路选通 + 乘性混合
-    u64 advance_lfsr(u8 s0, u8 s1);
+    // 推进全部 16 条 LFSR，三路选通 + 乘性混合
+    u64 advance_lfsr(u8 s0, u8 s1, u8 s2);
 
     u8  m_bitmap[32];   // 256 位内部状态
     u8  m_idx;          // 8 位比特游标（0~255）

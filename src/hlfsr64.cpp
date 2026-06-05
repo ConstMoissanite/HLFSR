@@ -30,15 +30,9 @@ const hlfsr64::u64 hlfsr64::POLY[16] = {
 // 常数时间工具
 // ============================================================
 
-// 64 位奇偶校验（XOR 折叠所有位）
+// 64 位奇偶校验（__builtin_parityl → 单条 popcnt）
 static inline hlfsr64::u64 parity64(hlfsr64::u64 x) {
-    x ^= x >> 32;
-    x ^= x >> 16;
-    x ^= x >> 8;
-    x ^= x >> 4;
-    x ^= x >> 2;
-    x ^= x >> 1;
-    return x & 1;
+    return (hlfsr64::u64)__builtin_parityll(x) & 1ULL;
 }
 
 // 常数时间字节相等：返回 0xFF 若 a==b，否则 0x00
@@ -68,24 +62,27 @@ void hlfsr64::init(const u8 bm[32], const u8 seed[32], u8 idx_init) {
 }
 
 // ============================================================
-// LFSR 推进 (Fibonacci 结构, 双路选通 + 乘性混合)
+// LFSR 推进 (Fibonacci 结构, 三路选通 + 乘性混合)
 // ============================================================
-hlfsr64::u64 hlfsr64::advance_lfsr(u8 s0, u8 s1) {
-    u64 v0 = 0, v1 = 0;
+hlfsr64::u64 hlfsr64::advance_lfsr(u8 s0, u8 s1, u8 s2) {
+    // 预计算掩码表，循环内只查表不复算 ct_eq8
+    u64 sm[16], om[16], pm[16];
+    for (int i = 0; i < 16; i++) {
+        sm[i] = 0ULL - (ct_eq8(s0, (u8)i) & 1);
+        om[i] = 0ULL - (ct_eq8(s1, (u8)i) & 1);
+        pm[i] = 0ULL - (ct_eq8(s2, (u8)i) & 1);
+    }
+    u64 v0 = 0, v1 = 0, v2 = 0;
     for (int i = 0; i < 16; i++) {
         u64 s   = m_lfsr[i];
         u64 tap = s & (POLY[i] & 0x7FFFFFFFFFFFFFFFULL);
-        u64 fb  = parity64(tap);
-        m_lfsr[i] = (s << 1) | fb;
-
-        u64 v  = m_lfsr[i];
-        u8  m0 = ct_eq8(s0, (u8)i) & 1;
-        u8  m1 = ct_eq8(s1, (u8)i) & 1;
-        v0 |= v & (0ULL - m0);
-        v1 |= v & (0ULL - m1);
+        m_lfsr[i] = (s << 1) | parity64(tap);
+        u64 v = m_lfsr[i];
+        v0 |= v & sm[i];
+        v1 |= v & om[i];
+        v2 |= v & pm[i];
     }
-    u64 mixed = v0 ^ v1;
-    return mixed * 0x9E3779B97F4A7C15ULL;  // 64×64 乘性混合打破字内位关联
+    return (v0 ^ v1 ^ v2) * 0x9E3779B97F4A7C15ULL;
 }
 
 // ============================================================
@@ -97,13 +94,12 @@ hlfsr64::u64 hlfsr64::next() {
     u8 bit_pos  = m_idx & 7;
     u8 curbyte  = m_bitmap[byte_idx];
     u8 curbit   = (curbyte >> bit_pos) & 1;
-    u8 sel      = (curbyte >> bit_pos) & 0x0F;
-    u8 sel1     = (bit_pos >= 4) ? ((curbyte >> (bit_pos - 4)) & 0x0F) : 0;
     u8 opcode   = curbyte >> 4;
     u8 param    = curbyte & 0x0F;
+    u8 sel      = (curbyte >> bit_pos) & 0x0F;
 
-    // ---- 2. 双路选通 + 乘性混合 ----
-    u64 raw = advance_lfsr(sel, sel1);
+    // ---- 2. 三路选通 (sel + opcode + param) + 乘性混合 ----
+    u64 raw = advance_lfsr(sel, opcode, param);
 
     // ---- 3. 输出 = raw XOR {64{curbit}} ----
     u64 curbit_mask = 0ULL - curbit;
@@ -224,20 +220,18 @@ hlfsr64::u64 hlfsr64::next() {
     ni[14] = (m_idx + 1) & 0xFF;                         // CurB:  默认 +1
     ni[15] = (m_idx + 8) & 0xFF;                         // NotB:  强制 +8
 
-    // ---- 掩码选择：合并 bitmap 写回与 idx 更新 ----
-    u64 merged_target = 0;
-    u64 merged_self   = 0;
-    u64 merged_remote = 0;
-    u64 merged_idx    = 0;
+    // ---- 掩码选择：预计算 opcode 掩码表，循环内只查表 ----
+    u64 omask[16];
+    for (int i = 0; i < 16; i++)
+        omask[i] = 0ULL - (ct_eq8(opcode, (u8)i) & 1);
 
+    u64 merged_target = 0, merged_self = 0, merged_remote = 0, merged_idx = 0;
     for (int i = 0; i < 16; i++) {
-        u8  match  = ct_eq8(opcode, (u8)i);
-        u64 mask   = 0ULL - (match & 1);
-
-        merged_target |= ((u64)vt[i] & mask);
-        merged_self   |= ((u64)vs[i] & mask);
-        merged_remote |= ((u64)vr[i] & mask);
-        merged_idx    |= ((u64)ni[i] & mask);
+        u64 m = omask[i];
+        merged_target |= ((u64)vt[i] & m);
+        merged_self   |= ((u64)vs[i] & m);
+        merged_remote |= ((u64)vr[i] & m);
+        merged_idx    |= ((u64)ni[i] & m);
     }
 
     // 写回 bitmap（3 个可能目标）
