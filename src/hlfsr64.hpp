@@ -1,7 +1,19 @@
-// hlfsr64.hpp — HLFSR-64 V8 流密码核心 (8×8×8 矩阵)
+// hlfsr64.hpp — HLFSR-64 流密码核心
 #pragma once
 #include <cstdint>
 #include <cstddef>
+
+// 算法版本标识
+#define HLFSR_VERSION     8
+#define HLFSR_VARIANT     "V8-Mask"
+#define HLFSR_MATRIX      8     // 8×8×8
+#define HLFSR_LFSR_COUNT  8     // 8 条 Galois LFSR
+#define HLFSR_MASK_BITS   8     // 8 位掩码选通
+#define HLFSR_MATRIX_BYTES 64  // 512 bits
+#define HLFSR_SEED_BYTES   32  // lfsr_seed
+#define HLFSR_IDX_BITS     9   // idx 范围 0-511
+#define HLFSR_OUTPUT_BITS  64  // 输出宽度
+// 先前版本: V1=ISA(16LFSR), V2=MF(16×16), V3=MV(batch), V4=V8(Fib), V5=Galois, V6=Mask, V7=16LFSR-mask
 
 class hlfsr64 {
 public:
