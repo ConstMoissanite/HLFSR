@@ -1,54 +1,49 @@
-# HLFSR-64
+# HLFSR-64 V10
 
-密钥驱动的流密码核心。512 位 8×8×8 矩阵 + 8 条 64 位 Galois LFSR + 1 字节掩码直接选通。64 位输出/步，乘性混合，面隔离批处理，1.2 GB/s。
+密钥驱动的流密码核心。512 位 8×8×8 矩阵 + 8 条 Galois LFSR (权重 13–15) + 8 位掩码直接选通。64 位输出/步，乘性混合 (黄金比)，面隔离批处理。NIST 100 轮 Monobit 98/100、其余 7 项全部满分，Golomb G3 0/32。
 
-## 设计要点
-
-| 参数 | 值 |
+| 指标 | 值 |
 |------|-----|
-| 矩阵 | 8×8×8 (512 bits = 64 bytes) |
-| LFSR | 8 × 64-bit Galois |
-| 输出宽度 | 64 位/步 |
-| 选通 | 8 位掩码 = 矩阵一行, mask=0→LFSR[idx&7] |
-| 混合 | XOR + 64×64 乘 (0x9E3779B97F4A7C15) |
-| 吞吐 | 1.24 GB/s (纯 C++) |
-| NIST | 50/50 全线通过 |
-| 等效密钥安全 | 256 位 |
-
-- **最小化设计**：无指令 ISA，无 ct_eq8 比较，一行字节 = 完整选通逻辑
-- **面隔离**：8 面独立，8 步批处理无 RAW 冲突
-- **Galois LFSR**：移位 + 条件 XOR，比 Fibonacci 少 60% 运算
-- **常数时间**：无秘密依赖分支
-- **零平台依赖**：C++14 标准库即可
+| 纯软件吞吐 | **1.36 GB/s** (纯 C++14) |
+| 对称加密 (8 MB) | 1.05 GB/s |
+| ECIES 复合 (X25519+HLFSR+Poly1305) | 693 MB/s (enc+dec) |
+| 统计质量 | NIST 7/8 项 100%, Golomb G3 0/32 = ChaCha20 |
+| 代码量 | ~250 行 (核心) |
 
 ## 快速开始
 
 ```cpp
 #include "src/hlfsr64.hpp"
 
-// 1. 外部 KDF 派生 (matrix: 64B, lfsr_seed: 32B, idx: u16)
-uint8_t matrix[64], lfsr_seed[32]; uint16_t idx;
-your_kdf(key, nonce, matrix, lfsr_seed, &idx);
+// KDF 派生 98 字节材料 (64 matrix + 32 seed + 2 idx)
+uint8_t matrix[64], seed[32]; uint16_t idx;
+your_kdf(key, nonce, matrix, seed, (uint8_t*)&idx);
 
-// 2. 初始化
 hlfsr64 cipher;
-cipher.init(matrix, lfsr_seed, idx);
-
-// 3. 加密/解密
-cipher.keystream(buf, len);
+cipher.init(matrix, seed, idx & 0x1FF);
+cipher.keystream(buf, len); // XOR with plaintext
 ```
 
-编译：`g++ -std=c++14 -O2 src/hlfsr64.cpp your_app.cpp`
+编译: `g++ -std=c++14 -O2 src/hlfsr64.cpp your_app.cpp`
+
+## 协议封装
+
+```
+src/protocol/  — X25519 + HKDF-SHA256 + HLFSR-64 V10 + Poly1305
+  48 字节开销, 前向安全, 认证加密
+```
 
 ## 文档
 
 | 文档 | 内容 |
 |------|------|
 | [specs/design.md](specs/design.md) | 完整技术规格书 |
-| [specs/api.md](specs/api.md) | API 接口文档 |
-| [specs/isa.md](specs/isa.md) | 指令集参考 |
-| [specs/polynomials.md](specs/polynomials.md) | 基底 LFSR 多项式 |
+| [specs/api.md](specs/api.md) | API 接口 |
+| [specs/isa.md](specs/isa.md) | 指令格式 |
+| [specs/polynomials.md](specs/polynomials.md) | LFSR 多项式 |
 | [specs/safety/analysis.md](specs/safety/analysis.md) | 安全性分析 |
+| [specs/benchmarks.md](specs/benchmarks.md) | 基准测试 |
+| [specs/protocol.md](specs/protocol.md) | 流协议规范 |
 
 ## 许可
 

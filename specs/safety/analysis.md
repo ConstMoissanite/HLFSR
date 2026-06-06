@@ -44,12 +44,11 @@ matrix[face,row] → mask → LFSR XOR ×K → raw[7:0] → matrix[face,row] ←
 |------|-------------|----------|
 | Golomb G1 | 50.000% PASS | 50.004% PASS |
 | Golomb G2 χ² | ~2070 | ~2070 |
-| Golomb G3 自相关 | 0/32 PASS | 0/32 PASS |
-| NIST Monobit (50r) | 50/50 | 49/50 |
-| NIST 全部 8 项 (50r) | **50/50 全线满分** | 49–50/50 |
-| NIST Monobit (100r, V8) | 100/100 | 100/100 |
-| 对称吞吐 (8 MB) | 599 MB/s | 550 MB/s |
-| 大块吞吐 (64 MB) | 1.24 GB/s | 1.76 GB/s (SIMD) |
+| Golomb G3 | **0/32 PASS** | 0/32 PASS |
+| NIST Monobit (100r) | **98/100** | 99/100 |
+| NIST 其余 7 项 (100r) | **全部 100/100** | 100/100 |
+| 吞吐 (64 MiB) | **1.36 GB/s** | 1.76 GB/s (SIMD) |
+| 吞吐 (8 MiB) | **1.05 GB/s** | 550 MB/s (纯 C) |
 
 ## 5. 已知攻击
 
