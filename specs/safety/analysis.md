@@ -1,4 +1,4 @@
-# HLFSR-64 V8-Mask 安全性分析
+# HLFSR-64 V10-Idx 安全性分析
 
 ## 1. 威胁模型
 
@@ -14,7 +14,7 @@
 | 组件 | 位数 | 结构 |
 |------|------|------|
 | matrix | 512 | 8 面 × 8 行 × 8 位 |
-| 8×64-bit LFSR | 512 | Galois, 本原多项式 |
+| 8×64-bit LFSR | 512 | Galois, 权重 13–15 本原多项式 |
 | idx | 9 | 0–511 |
 | **合计** | **1033** | |
 
@@ -40,16 +40,16 @@ matrix[face,row] → mask → LFSR XOR ×K → raw[7:0] → matrix[face,row] ←
 
 ## 4. 统计检验
 
-| 检验 | HLFSR V8-Mask | ChaCha20 |
+| 检验 | HLFSR V10-Idx | ChaCha20 |
 |------|-------------|----------|
 | Golomb G1 | 50.000% PASS | 50.004% PASS |
 | Golomb G2 χ² | ~2070 | ~2070 |
 | Golomb G3 自相关 | 0/32 PASS | 0/32 PASS |
-| NIST Monobit (100r) | 100/100 | 100/100 |
-| NIST Runs (100r) | 100/100 | 100/100 |
-| NIST 矩阵秩 | 99/100 | 99/100 |
-| NIST 线性复杂度 | 100/100 | 100/100 |
-| 对称吞吐 | 599 MB/s | 550 MB/s |
+| NIST Monobit (50r) | 50/50 | 49/50 |
+| NIST 全部 8 项 (50r) | **50/50 全线满分** | 49–50/50 |
+| NIST Monobit (100r, V8) | 100/100 | 100/100 |
+| 对称吞吐 (8 MB) | 599 MB/s | 550 MB/s |
+| 大块吞吐 (64 MB) | 1.24 GB/s | 1.76 GB/s (SIMD) |
 
 ## 5. 已知攻击
 
@@ -71,10 +71,13 @@ matrix[face,row] → mask → LFSR XOR ×K → raw[7:0] → matrix[face,row] ←
 ## 6. 退化状态
 
 ### 全零矩阵
-第一步 mask = 0|1 = 1 → LFSR[0] 选中 → raw ≠ 0 → 回填破坏全零。
+mask = 0 → 回退 LFSR[idx&7]。第一条回填即破坏全零状态。
 
 ### 全零 LFSR
-Galois LFSR 全零自持 (0<<1 ^ 0 = 0)。需 init 时检查 lfsr_seed 非全零。
+Galois 全零自持。init 时检查 lfsr_seed 非全零。
+
+### mask=0 攻击面
+mask=0 概率 1/256。攻击者若构造全零矩阵可在第一步触发，但 idx&7 自然轮转使得即使连续 mask=0，选通的 LFSR 每步不同。无固定偏倚。
 
 ## 7. 总结
 
