@@ -1,38 +1,34 @@
-# HLFSR-64 MF 指令字格式
+# HLFSR-64 V8-Mask 指令格式
 
 ## 概述
 
-MF 设计没有传统 ISA。每步从矩阵当前行读取 16 位指令字（`curword`），分为 1 个移位量 + 3 个 LFSR 选通信号。没有操作码，没有参数值计算——LFSR 选通 + 行移位 + 回填构成状态演化。
+无传统 ISA。每步从矩阵当前面取一行 (8 位) = LFSR 选通掩码。每 bit 直接选中一条 LFSR。移位量 p 由列位置决定。
 
-## 指令字编码
-
-```
-curword = matrix[row*2] | (matrix[row*2+1] << 8)
-
-bits [15:12]  p     行内循环移位数 (0~15)
-bits [11:8]   sel0  第一 LFSR 选通
-bits [7:4]    sel1  第二 LFSR 选通
-bits [3:0]    sel2  第三 LFSR 选通
-```
-
-## 每步执行
+## 编码
 
 ```
-行列解码    row = idx >> 4
-指令字读取  curword = matrix[row*2] | (matrix[row*2+1] << 8)
-LFSR 选通   raw = (L_sel0 ^ L_sel1 ^ L_sel2) × K
-curbit 翻转 output = raw XOR {64{curbit}}, curbit = matrix[row*2] & 1
-回填       matrix[row] ^= (raw & 0xFFFF)
-行移位     matrix[row] = ROL16(matrix[row], p)
-idx 推进   idx = (idx + 1) & 0xFF
+mask  = matrix[face*8 + row] | 1   // 8 位, bit 0 保底置 1
+p     = col                          // 3 位 (0–7)
+curbit = (matrix[addr] >> col) & 1  // 1 位
 ```
 
-## 与传统 ISA 对比
+## 每步
 
-| | ISA (IM) | MF |
-|---|---------|-----|
-| 指令位宽 | 8 位 (4 opcode + 4 param) | 16 位 (4 shift + 12 select) |
-| 指令条数 | 16 | 无（连续编码） |
-| bitmap 修改 | 16 条指令 3 类目标 | 1 行 XOR + ROL |
-| 吞吐 | 115 MiB/s | 238 MiB/s |
-| 自修改 | 指令改变 bitmap 字节 | 回填改变矩阵行 |
+```
+坐标解码  face=idx&7, row=(idx>>3)&7, col=(idx>>6)&7
+掩码读取  mask = matrix[face*8+row] | 1
+LFSR  X   raw = (⊕ mask[i]·LFSR[i]) × K
+curbit     output = raw ^ {64{curbit}}
+回填       matrix[addr] ^= raw[7:0]
+行移位     matrix[addr] = ROL8(matrix[addr], col)
+推进       idx = (idx + 1) & 0x1FF
+```
+
+## 与前期版本对比
+
+| | ISA (V1) | MF (V2) | V8-Mask |
+|---|---------|-----|---------|
+| 选通 | 3×4b ct_eq8×48 | 3×4b ct_eq8×48 | 1×8b mask |
+| 指令位 | 8b opcode+param | 16b p+sel | 8b mask |
+| 移位 | 无 | ROL16(p) | ROL8(col) |
+| 吞吐 | 115 | 238 | 1200 |
