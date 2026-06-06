@@ -2,17 +2,10 @@
 #include "hlfsr64.hpp"
 #include <cstring>
 
-// 9 个 64 次本原多项式，权重 13–15 (随机采样 + 不可约+本原验证)
-const hlfsr64::u64 hlfsr64::POLY[9] = {
-    0x4800203343401101ULL,  // [0] w=15  x^64 + x^62 + x^59 + x^45 + x^37 + x^36 + x^33 + x^32 + x^30 + x^25 + x^24 + x^22 + x^12 + x^8 + 1
-    0x0416001300480117ULL,  // [1] w=15  x^64 + x^58 + x^52 + x^50 + x^49 + x^36 + x^33 + x^32 + x^22 + x^19 + x^8 + x^4 + x^2 + x + 1
-    0x58000C0310100803ULL,  // [2] w=13  x^64 + x^62 + x^60 + x^59 + x^43 + x^42 + x^33 + x^32 + x^28 + x^20 + x^11 + x + 1
-    0x00A0090940648023ULL,  // [3] w=15  x^64 + x^55 + x^53 + x^43 + x^40 + x^35 + x^32 + x^30 + x^22 + x^21 + x^18 + x^15 + x^5 + x + 1
-    0x484302010C340003ULL,  // [4] w=15  x^64 + x^62 + x^59 + x^54 + x^49 + x^48 + x^41 + x^32 + x^27 + x^26 + x^21 + x^20 + x^18 + x + 1
-    0x801D001006412901ULL,  // [5] w=15  x^64 + x^63 + x^52 + x^51 + x^50 + x^48 + x^36 + x^26 + x^25 + x^22 + x^16 + x^13 + x^11 + x^8 + 1
-    0x04429288080A1021ULL,  // [6] w=15  x^64 + x^58 + x^54 + x^49 + x^47 + x^44 + x^41 + x^39 + x^35 + x^27 + x^19 + x^17 + x^12 + x^5 + 1
-    0x2000022052D01213ULL,  // [7] w=15  x^64 + x^61 + x^41 + x^37 + x^30 + x^28 + x^25 + x^23 + x^22 + x^20 + x^12 + x^9 + x^4 + x + 1
-    0x0882072000830681ULL,  // [8] w=15  x^64 + x^59 + x^55 + x^49 + x^42 + x^41 + x^40 + x^37 + x^23 + x^17 + x^16 + x^10 + x^9 + x^7 + 1 (aux)
+// 8 个 64 次本原多项式，权重 13–15
+const hlfsr64::u64 hlfsr64::POLY[8] = {
+    0x4800203343401101ULL, 0x0416001300480117ULL, 0x58000C0310100803ULL, 0x00A0090940648023ULL,
+    0x484302010C340003ULL, 0x801D001006412901ULL, 0x04429288080A1021ULL, 0x2000022052D01213ULL,
 };
 
 #ifdef HLFSR64_AVX2
@@ -30,8 +23,8 @@ static inline hlfsr64::u8 rol8(hlfsr64::u8 x, int n) {
 void hlfsr64::init(const u8 m[64], const u8 seed[32], u16 idx_init) {
     std::memcpy(m_matrix, m, 64);
     m_idx = idx_init & 0x1FF;
-    for (int i = 0; i < 9; i++) {
-        u64 val = 0; u8 base = (u8)(i * 3) & 31;  // stride 3, gcd(3,32)=1
+    for (int i = 0; i < 8; i++) {
+        u64 val = 0; u8 base = (u8)(i * 4) & 31;
         for (int j = 0; j < 8; j++) val |= (u64)seed[(base + j) & 31] << (j * 8);
         m_lfsr[i] = val;
     }
@@ -39,19 +32,15 @@ void hlfsr64::init(const u8 m[64], const u8 seed[32], u16 idx_init) {
 
 hlfsr64::u64 hlfsr64::advance_lfsr(u8 mask_byte) {
     u64 vx = 0;
-    // 8 条主 LFSR
     for (int i = 0; i < 8; i++) {
         u64 s   = m_lfsr[i];
         u64 msb = s >> 63;
         m_lfsr[i] = (s << 1) ^ (POLY[i] & (0ULL - msb));
         vx ^= m_lfsr[i] & (0ULL - ((u64)(mask_byte >> i) & 1ULL));
     }
-    // 附属高权重 LFSR (始终推进, mask=0 时选通)
-    u64 sa = m_lfsr[8];
-    u64 ma = sa >> 63;
-    m_lfsr[8] = (sa << 1) ^ (POLY[8] & (0ULL - ma));
+    // mask=0 → 选取 LFSR[idx & 7] (idx 低 3 位自然轮转)
     u64 mz = 0ULL - (ct_eq8(mask_byte, 0) & 1);
-    u64 raw = (vx & ~mz) | (m_lfsr[8] & mz);
+    u64 raw = (vx & ~mz) | (m_lfsr[m_idx & 7] & mz);
     return raw * 0x9E3779B97F4A7C15ULL;
 }
 
