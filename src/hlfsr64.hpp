@@ -4,16 +4,16 @@
 #include <cstddef>
 
 // 算法版本标识
-#define HLFSR_VERSION     8
-#define HLFSR_VARIANT     "V8-Mask"
+#define HLFSR_VERSION     9
+#define HLFSR_VARIANT     "V9-Aux"
 #define HLFSR_MATRIX      8     // 8×8×8
-#define HLFSR_LFSR_COUNT  8     // 8 条 Galois LFSR
+#define HLFSR_LFSR_COUNT  9     // 8 主 + 1 附属高权重
 #define HLFSR_MASK_BITS   8     // 8 位掩码选通
 #define HLFSR_MATRIX_BYTES 64  // 512 bits
 #define HLFSR_SEED_BYTES   32  // lfsr_seed
 #define HLFSR_IDX_BITS     9   // idx 范围 0-511
 #define HLFSR_OUTPUT_BITS  64  // 输出宽度
-// 先前版本: V1=ISA(16LFSR), V2=MF(16×16), V3=MV(batch), V4=V8(Fib), V5=Galois, V6=Mask, V7=16LFSR-mask
+// 先前版本: V1=ISA, V2=MF, V3=MV, V4=V8-Fib, V5=Galois, V6=Mask16, V7=Mask8, V8=V8-Mask
 
 class hlfsr64 {
 public:
@@ -34,7 +34,7 @@ private:
 
     u8  m_matrix[64];  // 8 faces × 8 rows × 8 bits
     u16 m_idx;         // 9 bits (0–511)
-    u64 m_lfsr[8];     // 8 × 64-bit (匹配 8×8×8 结构)
+    u64 m_lfsr[9];     // 8 主 + 1 附属 (高权重, mask=0 保底)
 
-    static const u64 POLY[8];
+    static const u64 POLY[9];  // [0..7]=主, [8]=附属 (weight 15+)
 };

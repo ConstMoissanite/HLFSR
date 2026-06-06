@@ -2,10 +2,12 @@
 #include "hlfsr64.hpp"
 #include <cstring>
 
-// TODO: 用高权重 (12–15) 64 次本原多项式替换
-const hlfsr64::u64 hlfsr64::POLY[8] = {
+// TODO: 用高权重 (12–15) 64 次本原多项式替换全部 9 条
+// POLY[8] = 附属 LFSR, 需要 weight 15+
+const hlfsr64::u64 hlfsr64::POLY[9] = {
     0x0054010000020001ULL, 0x0080000004200083ULL, 0x0100000020040481ULL, 0x0000088040008005ULL,
     0x0804000004200101ULL, 0x0000900008400009ULL, 0x8000110004001001ULL, 0x2000000000820141ULL,
+    0x4080000040080021ULL,  // aux placeholder (原 POLY[12], needs weight≥15)
 };
 
 #ifdef HLFSR64_AVX2
@@ -23,8 +25,8 @@ static inline hlfsr64::u8 rol8(hlfsr64::u8 x, int n) {
 void hlfsr64::init(const u8 m[64], const u8 seed[32], u16 idx_init) {
     std::memcpy(m_matrix, m, 64);
     m_idx = idx_init & 0x1FF;
-    for (int i = 0; i < 8; i++) {
-        u64 val = 0; u8 base = (u8)(i * 4) & 31;
+    for (int i = 0; i < 9; i++) {
+        u64 val = 0; u8 base = (u8)(i * 3) & 31;  // stride 3, gcd(3,32)=1
         for (int j = 0; j < 8; j++) val |= (u64)seed[(base + j) & 31] << (j * 8);
         m_lfsr[i] = val;
     }
@@ -32,13 +34,20 @@ void hlfsr64::init(const u8 m[64], const u8 seed[32], u16 idx_init) {
 
 hlfsr64::u64 hlfsr64::advance_lfsr(u8 mask_byte) {
     u64 vx = 0;
+    // 8 条主 LFSR
     for (int i = 0; i < 8; i++) {
         u64 s   = m_lfsr[i];
         u64 msb = s >> 63;
         m_lfsr[i] = (s << 1) ^ (POLY[i] & (0ULL - msb));
         vx ^= m_lfsr[i] & (0ULL - ((u64)(mask_byte >> i) & 1ULL));
     }
-    return vx * 0x9E3779B97F4A7C15ULL;
+    // 附属高权重 LFSR (始终推进, mask=0 时选通)
+    u64 sa = m_lfsr[8];
+    u64 ma = sa >> 63;
+    m_lfsr[8] = (sa << 1) ^ (POLY[8] & (0ULL - ma));
+    u64 mz = 0ULL - (ct_eq8(mask_byte, 0) & 1);
+    u64 raw = (vx & ~mz) | (m_lfsr[8] & mz);
+    return raw * 0x9E3779B97F4A7C15ULL;
 }
 
 hlfsr64::u64 hlfsr64::next() {
@@ -50,7 +59,7 @@ hlfsr64::u64 hlfsr64::next() {
     u8  curbit  = (curbyte >> col) & 1;
 
     // LFSR 掩码 = 当前行（8 位，天然匹配 8 条 LFSR）
-    u8 mask = curbyte | 1;  // 保底 LFSR[0] 始终选中
+    u8 mask = curbyte;  // mask=0 时附属 LFSR 接管
     u8 p    = (u8)((m_idx >> 6) & 7);
 
     u64 raw    = advance_lfsr(mask);
@@ -75,7 +84,7 @@ void hlfsr64::keystream(void* out, std::size_t bytes) {
             u8 f = (u8)(t_idx & 7), r = (u8)((t_idx >> 3) & 7);
             u8 addr = f * 8 + r;
             ba8[i] = addr;
-            mask[i] = m_matrix[addr] | 1;  // 保底 LFSR[0]
+            mask[i] = m_matrix[addr];  // mask=0 → 附属 LFSR
             pv[i]   = (u8)((t_idx >> 6) & 7);
             cb[i]   = (mask[i] >> pv[i]) & 1;
         }
