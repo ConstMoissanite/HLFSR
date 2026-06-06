@@ -1,6 +1,6 @@
 # HLFSR-64 V10-Idx 基准测试
 
-> 硬件: Intel Core i7-13700H · GCC 16.1.0 · -O2 -march=native · 单线程
+> 硬件: Intel Core i9-14900HX (24C/32T, 36MB L3) · GCC 16.1.0 · -O2 -march=native · 单线程
 
 ## 1. 对称加密吞吐
 
@@ -53,7 +53,7 @@ HLFSR 面积效率高于 ChaCha20 和 AES, 关键路径在 64×64 乘法器。
 ## 5. 测试环境
 
 - OS: Windows 11 x64
-- CPU: Intel Core i7-13700H (6P+8E, 4.7 GHz boost)
-- L3: 24 MB
+- CPU: Intel Core i9-14900HX (24C/32T, up to 5.8 GHz)
+- L3: 36 MB
 - GCC: 16.1.0 (MSYS2 MinGW64)
 - OpenSSL: 3.x
