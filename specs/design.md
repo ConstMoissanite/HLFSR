@@ -111,19 +111,27 @@ Fibonacci 多项式 P(x) 与 Galois 多项式 Q(x) = x^64·P(1/x) 产生相同�
 vx = XOR over { LFSR[i] : mask bit i = 1 }
 ```
 
-- mask = 0: 无 LFSR 选中 → raw = 0 → 零块
-- mask | 1: bit 0 强制置 1 → LFSR[0] 始终选中 → 永不全零
+8 位随机掩码期望 Hamming weight = 4，平均 4 条主 LFSR 参与 XOR。
 
-8 位随机掩码的期望 Hamming weight = 4，平均 4 条 LFSR 参与 XOR。
+### 6.2 附属 LFSR (mask=0 保底)
 
-### 6.2 与旧版对比
+```
+if mask == 0:  raw = LFSR[8] × K   // 附属高权重 LFSR 接管
+if mask != 0:  raw = vx     × K
+```
 
-| | ISA (V1) | V8-Mask |
-|---|---------|---------|
-| 选通方式 | ct_eq8 × 48 | 1 字节位掩码 |
-| 选通数 | 固定 3 条 | 1–8 条 (期望 4.5) |
-| 零块风险 | sel0==sel1 | mask=0 (bit0 保底消除) |
-| 指令开销 | 16 条指令译码 + 48 比较 | 0 |
+常数时间：`raw = ((vx & ~mz) | (LFSR[8] & mz)) × K`，其中 mz = -(mask==0)。
+
+mask=0 概率 = 1/256 ≈ 0.4%。附属 LFSR 采用权重 15+ 多项式 (待筛选)，始终推进。消除 `mask|=1` 的 forced-bit 偏倚。
+
+### 6.3 与旧版对比
+
+| | ISA (V1) | V8-Mask | **V9-Aux** |
+|---|---------|---------|------------|
+| 选通方式 | ct_eq8 × 48 | 1 字节位掩码 | 同 V8 |
+| 选通数 | 固定 3 | 1–8 (bit0 强制) | 0–8 (附属接管 0) |
+| 零块处理 | sel0==sel1 | mask|=1 | 附属 LFSR |
+| 指令开销 | 16 指令 + 48 比较 | 0 | 0 |
 
 ## 7. 初始化
 
@@ -132,13 +140,15 @@ vx = XOR over { LFSR[i] : mask bit i = 1 }
 
 1. memcpy(m_matrix, matrix, 64)
 2. m_idx = idx_init & 0x1FF
-3. for i in 0..7:
-       base = (i * 4) & 31
+3. for i in 0..8:                    // 9 条 LFSR (8 主 + 1 附属)
+       base = (i * 3) & 31           // stride=3, gcd(3,32)=1
        for j in 0..7:
            LFSR[i] |= seed[(base + j) & 31] << (j * 8)
 ```
 
-滑动窗口步长 4：32 字节种子覆盖 8 条 × 8 字节 = 64 字节需求。每个种子字节被 2 条 LFSR 共享。
+**滑动窗口推导**：9 条 × 8 字节 = 72 字节需求，32 字节种子。stride=3 (gcd(3,32)=1) 保证所有 32 字节被均匀覆盖，每字节被约 2.25 条 LFSR 共享。附属 LFSR (i=8) 取 seed[(24+j) mod 32] = seed[24..31]。
+
+**调用方职责**：使用选定的 KDF 从主密钥派生 64+32+2=98 字节材料。同一密钥下 Nonce 不可重复。
 
 ## 8. 批处理
 
