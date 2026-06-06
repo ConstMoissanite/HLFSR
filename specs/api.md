@@ -1,9 +1,22 @@
-# HLFSR-64 API
+# HLFSR-64 V8-Mask API
 
 ## 头文件
 
 ```cpp
 #include "src/hlfsr64.hpp"
+```
+
+## 版本常量
+
+```cpp
+#define HLFSR_VERSION     8
+#define HLFSR_VARIANT     "V8-Mask"
+#define HLFSR_MATRIX      8        // 8×8×8
+#define HLFSR_LFSR_COUNT  8        // 8 条 Galois LFSR
+#define HLFSR_MASK_BITS   8        // 8 位掩码选通
+#define HLFSR_MATRIX_BYTES 64     // 512 bits
+#define HLFSR_SEED_BYTES   32     // lfsr_seed
+#define HLFSR_IDX_BITS     9      // idx 0-511
 ```
 
 ## 类型
@@ -12,9 +25,10 @@
 class hlfsr64 {
 public:
     using u8  = std::uint8_t;
+    using u16 = std::uint16_t;
     using u64 = std::uint64_t;
 
-    void init(const u8 bitmap[32], const u8 lfsr_seed[32], u8 idx_init);
+    void init(const u8 matrix[64], const u8 lfsr_seed[32], u16 idx_init);
     u64  next();
     void keystream(void* out, std::size_t bytes);
 };
@@ -23,21 +37,18 @@ public:
 ## init
 
 ```cpp
-void init(const u8 bitmap[32], const u8 lfsr_seed[32], u8 idx_init);
+void init(const u8 matrix[64], const u8 lfsr_seed[32], u16 idx_init);
 ```
 
-初始化内部状态。三个参数均由外部 KDF 提供，库不做密钥派生。
+初始化 8×8×8 矩阵和 8 条 Galois LFSR。
 
 | 参数 | 大小 | 说明 |
 |------|------|------|
-| `bitmap` | 32 字节 | 256 位内部状态，同时作为数据存储器和指令存储器 |
-| `lfsr_seed` | 32 字节 | 16 条基底 LFSR 初态种子，库内部以步长 2 滑动窗口填入各 LFSR |
-| `idx_init` | 1 字节 | 起始比特游标（0~255），首次取 curbit / sel 的位置 |
+| `matrix` | 64 字节 | 8 面×8 行×8 位，512 bits 初始状态 |
+| `lfsr_seed` | 32 字节 | LFSR 初态种子，步长 4 滑动窗口填入 8 条 LFSR |
+| `idx_init` | 2 字节 (u16) | 起始游标 (0–511)，低 9 位有效 |
 
-调用方职责：
-- 使用选定的 KDF（SHA-256 / BLAKE3 / HKDF 等）从主密钥派生上述材料
-- 同一密钥下确保 Nonce 不重复
-- 建议检查并拒绝退化种子（bitmap 全 0 或全 1）
+调用方职责：使用外部 KDF 派生上述 98 字节密钥材料。
 
 ## next
 
@@ -45,11 +56,7 @@ void init(const u8 bitmap[32], const u8 lfsr_seed[32], u8 idx_init);
 u64 next();
 ```
 
-单步推进：推进全部 16 条 LFSR，产出 64 位密钥流，执行一步指令，更新 idx。
-
-- **返回值**：64 位密钥流（小端字节序）
-- **常数时间**：无秘密依赖分支
-- **可重复调用**：状态在每次调用间持续演化
+单步推进。每步：读矩阵一行 → 8 位掩码选通 LFSR → Galois 推进 → 乘性混合 → 输出 + 回填 + ROL8。常数时间。
 
 ## keystream
 
@@ -57,37 +64,23 @@ u64 next();
 void keystream(void* out, std::size_t bytes);
 ```
 
-批量产生密钥流。
+批量密钥流。内部 8 步批处理 (面隔离)，`bytes` 不足 64 时回退单步。
 
-- `out`：输出缓冲区，调用方分配
-- `bytes`：所需字节数（公开值，尾部不足 8 字节时截断最后一个块）
-
-等价于循环调用 `next()` 并将结果按小端写入 `out`。
+输出格式：64 位块小端写入。
 
 ## 使用示例
 
 ```cpp
 #include "src/hlfsr64.hpp"
 
-// 外部 KDF
-uint8_t master_key[32], nonce[12];
-uint8_t bitmap[32], lfsr_seed[32], idx_init;
-hkdf_sha256(master_key, nonce, bitmap, lfsr_seed, &idx_init);
+// 外部 KDF 派生 98 字节材料
+uint8_t matrix[64], seed[32]; uint16_t idx;
+hkdf_sha256(key, nonce, matrix, seed, (uint8_t*)&idx);
 
 // 加密
 hlfsr64 ctx;
-ctx.init(bitmap, lfsr_seed, idx_init);
-
-uint8_t plaintext[]  = "Hello, World!";
-uint8_t ciphertext[sizeof(plaintext)];
-
-ctx.keystream(ciphertext, sizeof(plaintext));
-for (size_t i = 0; i < sizeof(plaintext); i++)
-    ciphertext[i] ^= plaintext[i];
-
-// 解密：重置后相同密钥流
-ctx.init(bitmap, lfsr_seed, idx_init);
-ctx.keystream(ciphertext, sizeof(ciphertext));
-for (size_t i = 0; i < sizeof(ciphertext); i++)
-    ciphertext[i] ^= ciphertext[i];  // 还原为明文
+ctx.init(matrix, seed, idx & 0x1FF);
+uint8_t buf[1024];
+ctx.keystream(buf, sizeof(buf));
+for (auto& b : buf) b ^= plaintext[i];  // XOR encrypt
 ```
