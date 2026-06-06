@@ -74,7 +74,7 @@ std::vector<uint8_t> encrypt(const uint8_t* pt, size_t pt_len,
     std::vector<uint8_t> ct(pt_len);
     {
         hlfsr64 h;
-        h.init(derived, derived + 64, *(uint16_t*)(derived + 96) & 0x1FF);
+        h.init(derived, *(uint16_t*)(derived + 64) & 0x1FF);
         h.keystream(ct.data(), pt_len);
         for (size_t i = 0; i < pt_len; i++) ct[i] ^= pt[i];
     }
@@ -140,7 +140,7 @@ std::vector<uint8_t> decrypt(const uint8_t* wire, size_t wire_len,
     std::vector<uint8_t> pt(ct_len);
     {
         hlfsr64 h;
-        h.init(derived, derived + 64, *(uint16_t*)(derived + 96) & 0x1FF);
+        h.init(derived, *(uint16_t*)(derived + 64) & 0x1FF);
         h.keystream(pt.data(), ct_len);
         for (size_t i = 0; i < ct_len; i++) pt[i] ^= ct[i];
     }

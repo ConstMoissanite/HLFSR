@@ -69,10 +69,8 @@ static void bench_hlfsr_symmetric(size_t data_kb = 1, size_t rounds = 500) {
     const size_t data_len = data_kb * 1024;
 
     // 生成随机密钥材料
-    hlfsr64::u8 matrix[64], seed[32];
-    hlfsr64::u16 idx;
-    RAND_bytes(matrix, 64);
-    RAND_bytes(seed, 32);
+    hlfsr64::u8 km[64]; hlfsr64::u16 idx;
+    RAND_bytes(km, 64);
     RAND_bytes((unsigned char*)&idx, 2);
     idx &= 0x1FF;
 
@@ -84,12 +82,12 @@ static void bench_hlfsr_symmetric(size_t data_kb = 1, size_t rounds = 500) {
 
     measure([&]() {
         hlfsr64 enc;
-        enc.init(matrix, seed, idx);
+        enc.init(km, idx);
         enc.keystream(ciphertext.data(), data_len);
         for (size_t i = 0; i < data_len; i++) ciphertext[i] ^= plaintext[i];
 
         hlfsr64 dec;
-        dec.init(matrix, seed, idx);
+        dec.init(km, idx);
         dec.keystream(ciphertext.data(), data_len);
         for (size_t i = 0; i < data_len; i++) ciphertext[i] ^= ciphertext[i];
     }, data_len, rounds, "HLFSR-64 Encrypt+Decrypt");
@@ -127,8 +125,8 @@ static void bench_hlfsr_ecies(int curve_nid, const std::string &algo_name,
 
     static const uint8_t info[] = "HLFSR-ECIES-v1";
     static const size_t info_len = 15;
-    // HLFSR needs: 64B matrix + 32B lfsr_seed + 2B idx = 98 bytes
-    static const int hlfsr_material = 98;
+    // HLFSR needs: 64B key_material + 2B idx = 66 bytes
+    static const int hlfsr_material = 66;
 
     measure([&]() {
         // ── 发送方 ──
@@ -153,7 +151,7 @@ static void bench_hlfsr_ecies(int curve_nid, const std::string &algo_name,
 
         // Encrypt
         hlfsr64 enc;
-        enc.init(material, material + 64, *(hlfsr64::u16*)(material + 96));
+        enc.init(material, *(hlfsr64::u16*)(material + 64));
         enc.keystream(buf.data(), data_len);
         for (size_t i = 0; i < data_len; i++) buf[i] ^= plaintext[i];
 
@@ -178,7 +176,7 @@ static void bench_hlfsr_ecies(int curve_nid, const std::string &algo_name,
 
         // Decrypt
         hlfsr64 dec;
-        dec.init(material2, material2 + 64, *(hlfsr64::u16*)(material2 + 96));
+        dec.init(material2, *(hlfsr64::u16*)(material2 + 64));
         dec.keystream(buf.data(), data_len);
         for (size_t i = 0; i < data_len; i++) buf[i] ^= buf[i];
 

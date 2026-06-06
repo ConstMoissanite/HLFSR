@@ -9,7 +9,7 @@ namespace hlfsr_proto {
 // 协议常量
 constexpr size_t X25519_PUBKEY_LEN  = 32;   // X25519 公钥
 constexpr size_t X25519_PRIVKEY_LEN = 32;   // X25519 私钥
-constexpr size_t HLFSR_MATERIAL     = 98;   // 64 matrix + 32 seed + 2 idx
+constexpr size_t HLFSR_MATERIAL     = 66;   // 64 key_material + 2 idx
 constexpr size_t POLY1305_KEY_LEN   = 32;   // Poly1305 认证密钥
 constexpr size_t HKDF_OUTPUT_LEN    = HLFSR_MATERIAL + POLY1305_KEY_LEN; // 130
 constexpr size_t POLY1305_TAG_LEN   = 16;   // 认证标签

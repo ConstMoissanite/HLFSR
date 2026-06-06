@@ -16,12 +16,12 @@ static inline hlfsr64::u8 rol8(hlfsr64::u8 x, int n) {
     n &= 7; return (hlfsr64::u8)((x << n) | (x >> (8 - n)));
 }
 
-void hlfsr64::init(const u8 m[64], const u8 seed[32], u16 idx_init) {
-    std::memcpy(m_matrix, m, 64);
+void hlfsr64::init(const u8 km[64], u16 idx_init) {
+    std::memcpy(m_matrix, km, 64);
     m_idx = idx_init & 0x1FF;
     for (int i = 0; i < 8; i++) {
-        u64 val = 0; u8 base = (u8)(i * 4) & 31;
-        for (int j = 0; j < 8; j++) val |= (u64)seed[(base + j) & 31] << (j * 8);
+        u64 val = 0;
+        for (int j = 0; j < 8; j++) val |= (u64)km[i * 8 + j] << (j * 8);
         m_lfsr[i] = val;
     }
 }

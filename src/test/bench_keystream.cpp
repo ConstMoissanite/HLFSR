@@ -64,15 +64,13 @@ int main() {
 
     // 随机密钥材料
     hlfsr64::u8 bm[64], seed[32]; hlfsr64::u16 idx;
-    if (RAND_bytes(bm, 64) != 1 ||
-        RAND_bytes(seed, 32) != 1 ||
+    if (RAND_bytes(km, 64) != 1 ||
         RAND_bytes((unsigned char*)&idx, 2) != 1) {
-        LOG(f, "RAND_bytes 失败\n");
         std::fclose(f); return 1;
     }
 
     hlfsr64 cipher;
-    cipher.init(bm, seed, idx);
+    cipher.init(km, idx);
 
     hlfsr64::u8* buf = new hlfsr64::u8[chunk];
     if (!buf) { LOG(f, "内存分配失败\n"); std::fclose(f); return 1; }
