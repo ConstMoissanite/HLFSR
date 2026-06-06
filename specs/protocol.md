@@ -11,11 +11,10 @@
 ───────────                            ──────────
 1. 生成临时 X25519 密钥对
 2. ECDH(eph_priv, bob_pub) → shared
-3. HKDF(shared, info) → 130 bytes
-   ├─ [0..63]   matrix (64B)
-   ├─ [64..95]  lfsr_seed (32B)
-   ├─ [96..97]  idx_init (2B)
-   └─ [98..129] poly1305_key (32B)
+3. HKDF(shared, info) → 98 bytes
+   ├─ [0..63]   key_material (64B) → matrix + LFSR
+   ├─ [64..65]  idx_init (2B)
+   └─ [66..97]  poly1305_key (32B)
 4. HLFSR 加密 → ciphertext
 5. Poly1305(eph_pub || ct) → tag
 6. 发送: eph_pub | ct | tag
@@ -41,7 +40,7 @@
 |------|-----|
 | 密钥交换 | X25519 (RFC 7748) |
 | 密钥派生 | HKDF-SHA256 (RFC 5869) |
-| 流加密 | HLFSR-64 V10-Idx |
+| 流加密 | HLFSR-64 V11-Uni |
 | 认证 | Poly1305 (RFC 8439) |
 | HKDF info | "HLFSR64-V10-ECIES" |
 | HKDF salt | 空 |

@@ -1,6 +1,6 @@
 # HLFSR-64 技术规格书
 
-> V10-Idx · 8×8×8 (512b) · 8×64b Galois · 8b mask · mask=0→LFSR[idx&7] · 1.24 GB/s
+> V11-Uni · 8×8×8 (512b) · 8×64b Galois · 8b mask · mask=0→LFSR[idx&7] · 1.24 GB/s
 
 ## 1. 设计概述
 
@@ -47,12 +47,11 @@ addr = face * 8 + row    // 0–63
 ## 5. 初始化
 
 ```
-输入: matrix[64], lfsr_seed[32], idx_init(u16)
-1. memcpy(m_matrix, matrix, 64)
+输入: key_material[64], idx_init(u16)
+1. memcpy(m_matrix, key_material, 64)
 2. m_idx = idx_init & 0x1FF
 3. for i in 0..7:
-       base = (i * 4) & 31   // stride 4
-       LFSR[i] = seed[base..base+7] (mod 32, 小端填充)
+       LFSR[i] = key_material[i*8 .. i*8+7] (小端, 无重叠)
 ```
 
 ## 6. 批处理
@@ -72,4 +71,5 @@ addr = face * 8 + row    // 0–63
 | V7 | Mask8 | 16 Gal | — | 790 | — |
 | V8 | V8-Mask | 8 Gal | bit0 强制 | 1200 | 49/50 |
 | V9 | V9-Aux | 8+1 Gal | aux LFSR | 1220 | — |
-| **V10** | **V10-Idx** | **8 Gal** | **idx&7** | **1240** | **50/50** |
+| V10 | V10-Idx | 8 Gal | idx&7 | 1240 | 50/50 |
+| **V11** | **V11-Uni** | **8 Gal** | **idx&7** | **1360** | **98/100** |
