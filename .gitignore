@@ -39,4 +39,4 @@ benchmarks/
 
 # Claude Code local settings
 .claude/
-CLAUDE.md
+CLAUDE.md*.7z

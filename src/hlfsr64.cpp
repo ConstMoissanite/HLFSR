@@ -1,4 +1,4 @@
-// hlfsr64.cpp — HLFSR-64 V8 流密码核心 (8×8×8)
+// hlfsr64.cpp — HLFSR-64 V11-Uni 流密码核心
 #include "hlfsr64.hpp"
 #include <cstring>
 
@@ -10,13 +10,17 @@ const hlfsr64::u64 hlfsr64::POLY[8] = {
 
 static inline hlfsr64::u8 ct_eq8(hlfsr64::u8 a, hlfsr64::u8 b) {
     hlfsr64::u8 d = a ^ b;
-    return (hlfsr64::u8)(0 - (((d | (hlfsr64::u8)(-(std::int8_t)d)) >> 7) ^ 1));
+    hlfsr64::u8 is_nz = (d | (hlfsr64::u8)((~d + 1))) >> 7; // 无符号溢出, 无UB
+    return (hlfsr64::u8)(0 - (is_nz ^ 1));
 }
 static inline hlfsr64::u8 rol8(hlfsr64::u8 x, int n) {
     n &= 7; return (hlfsr64::u8)((x << n) | (x >> (8 - n)));
 }
 
 void hlfsr64::init(const u8 km[64], u16 idx_init) {
+    // 退化态检测: 全零 key_material → 永久零输出
+    const u64* p = (const u64*)km;
+    if ((p[0]|p[1]|p[2]|p[3]|p[4]|p[5]|p[6]|p[7]) == 0) return; // 拒绝全零种子
     std::memcpy(m_matrix, km, 64);
     m_idx = idx_init & 0x1FF;
     for (int i = 0; i < 8; i++) {
@@ -26,7 +30,7 @@ void hlfsr64::init(const u8 km[64], u16 idx_init) {
     }
 }
 
-hlfsr64::u64 hlfsr64::advance_lfsr(u8 mask_byte) {
+hlfsr64::u64 hlfsr64::advance_lfsr(u8 mask_byte, u16 step_idx) {
     u64 vx = 0;
     for (int i = 0; i < 8; i++) {
         u64 s   = m_lfsr[i];
@@ -34,9 +38,9 @@ hlfsr64::u64 hlfsr64::advance_lfsr(u8 mask_byte) {
         m_lfsr[i] = (s << 1) ^ (POLY[i] & (0ULL - msb));
         vx ^= m_lfsr[i] & (0ULL - ((u64)(mask_byte >> i) & 1ULL));
     }
-    // mask=0 → 选取 LFSR[idx & 7] (idx 低 3 位自然轮转)
+    // mask=0 → step_idx 低 3 位选通，批处理中每步独立轮转
     u64 mz = 0ULL - (ct_eq8(mask_byte, 0) & 1);
-    u64 raw = (vx & ~mz) | (m_lfsr[m_idx & 7] & mz);
+    u64 raw = (vx & ~mz) | (m_lfsr[step_idx & 7] & mz);
     return raw * 0x9E3779B97F4A7C15ULL;
 }
 
@@ -52,7 +56,7 @@ hlfsr64::u64 hlfsr64::next() {
     u8 mask = curbyte;  // mask=0 时附属 LFSR 接管
     u8 p    = (u8)((m_idx >> 6) & 7);
 
-    u64 raw    = advance_lfsr(mask);
+    u64 raw    = advance_lfsr(mask, m_idx);
     u64 output = raw ^ (0ULL - curbit);
 
     m_matrix[ba] ^= (u8)(raw & 0xFF);
@@ -80,7 +84,7 @@ void hlfsr64::keystream(void* out, std::size_t bytes) {
         }
 
         u64 raw[8];
-        for (int i = 0; i < 8; i++) raw[i] = advance_lfsr(mask[i]);
+        for (int i = 0; i < 8; i++) raw[i] = advance_lfsr(mask[i], m_idx + i);
 
         // 3. 输出
         for (int i = 0; i < 8; i++) {

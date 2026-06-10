@@ -66,7 +66,7 @@ std::vector<uint8_t> encrypt(const uint8_t* pt, size_t pt_len,
     ecdh(shared, eph.priv, recv_pub);
 
     // 3. HKDF 派生 130 字节 (98 HLFSR + 32 Poly1305)
-    const uint8_t info[] = "HLFSR64-V10-ECIES";
+    const uint8_t info[] = "HLFSR64-V11-ECIES";
     uint8_t derived[HKDF_OUTPUT_LEN];
     hkdf(derived, shared, 32, info, sizeof(info) - 1);
 
@@ -115,7 +115,7 @@ std::vector<uint8_t> decrypt(const uint8_t* wire, size_t wire_len,
     ecdh(shared, recv_priv, eph_pub);
 
     // 2. HKDF
-    const uint8_t info[] = "HLFSR64-V10-ECIES";
+    const uint8_t info[] = "HLFSR64-V11-ECIES";
     uint8_t derived[HKDF_OUTPUT_LEN];
     hkdf(derived, shared, 32, info, sizeof(info) - 1);
 

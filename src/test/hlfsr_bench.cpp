@@ -86,10 +86,11 @@ static void bench_hlfsr_symmetric(size_t data_kb = 1, size_t rounds = 500) {
         enc.keystream(ciphertext.data(), data_len);
         for (size_t i = 0; i < data_len; i++) ciphertext[i] ^= plaintext[i];
 
-        hlfsr64 dec;
-        dec.init(km, idx);
+        std::vector<uint8_t> saved_ct(ciphertext);
+	    hlfsr64 dec;
+	    dec.init(km, idx);
         dec.keystream(ciphertext.data(), data_len);
-        for (size_t i = 0; i < data_len; i++) ciphertext[i] ^= ciphertext[i];
+        for (size_t i = 0; i < data_len; i++) ciphertext[i] ^= saved_ct[i];
     }, data_len, rounds, "HLFSR-64 Encrypt+Decrypt");
 }
 
@@ -175,10 +176,11 @@ static void bench_hlfsr_ecies(int curve_nid, const std::string &algo_name,
         EVP_PKEY_CTX_free(kdf);
 
         // Decrypt
+        std::vector<uint8_t> saved_ct2(buf.begin(), buf.end());
         hlfsr64 dec;
         dec.init(material2, *(hlfsr64::u16*)(material2 + 64));
         dec.keystream(buf.data(), data_len);
-        for (size_t i = 0; i < data_len; i++) buf[i] ^= buf[i];
+        for (size_t i = 0; i < data_len; i++) buf[i] ^= saved_ct2[i];
 
         EVP_PKEY_free(eph);
     }, data_len, rounds, "HLFSR-64 " + algo_name + " ECIES");

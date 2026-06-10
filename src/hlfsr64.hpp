@@ -30,7 +30,7 @@ public:
     void keystream(void* out, std::size_t bytes);
 
 private:
-    u64 advance_lfsr(u8 mask);
+    u64 advance_lfsr(u8 mask, u16 step_idx);
 
     u8  m_matrix[64];
     u16 m_idx;

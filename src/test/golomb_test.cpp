@@ -215,7 +215,7 @@ int main(int argc, char* argv[]) {
     LOG(f, "样本量: %llu MiB\n\n", (unsigned long long)sample_mib);
 
     // 随机密钥材料
-    hlfsr64::u8 bm[64], seed[32]; hlfsr64::u16 idx;
+    hlfsr64::u8 km[64]; hlfsr64::u16 idx;
     if (RAND_bytes(km, 64) != 1 ||
         RAND_bytes((unsigned char*)&idx, 2) != 1) {
         std::fclose(f); return 1;
