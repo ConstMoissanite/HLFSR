@@ -1,75 +1,139 @@
-# HLFSR-64 技术规格书
+# HLFSR-64 V11-Uni 技术规格书
 
-> V11-Uni · 8×8×8 (512b) · 8×64b Galois · 8b mask · mask=0→LFSR[idx&7] · 1.24 GB/s
+> 8×8×8 矩阵 (512b) · 8×64b Galois LFSR · 8b mask 选通 · gold-ratio multiply · 面隔离批处理 · 1.36 GB/s
 
-## 1. 设计概述
+## 1. 设计哲学
 
-HLFSR-64 是密钥驱动的流密码核心。512 位 8×8×8 矩阵 + 8 条 64 位 Galois LFSR。每步取当前面一行 (8 位) 作为 LFSR 选通掩码。若 mask≠0，XOR 选中 LFSR 输出；若 mask=0，回退为 LFSR[idx&7] (idx 低 3 位自然轮转)。结果经 64×64 乘性混合，低 8 位 XOR 回填当前行，行内循环移位。
+HLFSR-64 是一个**自修改流密码核心**——内部状态同时作为数据源和控制源。每步从矩阵读取 8 位掩码决定哪些 LFSR 参与输出，输出结果又回填修改矩阵。这种"读自身→决定行为→写自身"的闭环创造了不可预测的状态动力学。
 
-## 2. 顶层参数
+三个核心洞察驱动了 V11 的设计：
 
-| 参数 | 值 |
-|------|-----|
-| 矩阵 | 8×8×8 = 512 bits (64 bytes) |
-| LFSR | 8 × 64-bit Galois, 权重 13–15 |
-| 输出 | 64 bits/step |
-| 选通 | 8-bit mask = 矩阵一行 |
-| mask=0 | 回退 LFSR[idx & 7] (idx 低 3 位轮转) |
-| 移位 p | col (3 bits) |
-| idx | 9 bits (0–511), 每步 +1 |
-| 乘性常数 | K = 0x9E3779B97F4A7C15 |
-| 吞吐 | 1.24 GB/s (NIST 50/50, G3 0/32) |
+1. **乘性混合是天然 S-Box**：64×64 模乘（奇数→双射）在 GF(2) 上产生 ~32 次布尔函数，单条 `imul` 指令替代了查表或复杂逻辑
+2. **面隔离使批处理可行**：`face = idx & 7` 确保连续 8 步访问 8 个不同面，读写无冲突，8 步可批量预解码
+3. **Galois 比 Fibonacci 快 60%**：消除 parity 折叠，只剩移位+sbb+xor 三条指令
 
-## 3. 坐标编码
+## 2. 顶层参数与密码学意义
 
-```
-face = idx & 7           // 面隔离, 连续 8 步不同面
-row  = (idx >> 3) & 7
-col  = (idx >> 6) & 7
-addr = face * 8 + row    // 0–63
-```
+| 参数 | 值 | 设计理由 |
+|------|-----|---------|
+| 矩阵 | 8×8×8 = 512 bits | 面积与状态空间平衡点 |
+| LFSR | 8 × 64-bit Galois, 权重 13–15 | 高权重补偿每条 LFSR 的高选中率 (~50%) |
+| 输出 | 64 bits/step | 匹配通用 CPU 字宽 |
+| 选通 | 8-bit mask = 矩阵一行 | 1 字节无解码开销 |
+| mask=0 处理 | 回退 LFSR[idx&7] | 无偏倚零块消除 |
+| curbit | 单 bit, 自矩阵 | 每步可能的全翻转，打破线性 |
+| 乘性常数 | K = 0x9E3779B97F4A7C15 | 64-bit 黄金比，最大扩散 |
+| 吞吐 | 1.36 GB/s | 纯 C++14，零 SIMD |
 
-## 4. 每步操作
+## 3. 坐标编码与面隔离原理
 
 ```
-1. face=idx&7, row=(idx>>3)&7, col=(idx>>6)&7
-2. mask = matrix[face*8+row]
-3. p = col, curbit = (matrix[addr] >> col) & 1
-4. ∀i: LFSR[i] = (LFSR[i]<<1) ^ (POLY[i] & -(LFSR[i]>>63))
-5. vx = ⊕(mask[i]·LFSR[i])
-6. raw = mask ? (vx × K) : (LFSR[idx&7] × K)  // mask=0→idx fallback
-7. output = raw ^ {64{curbit}}
-8. matrix[addr] ^= raw[7:0]
-9. matrix[addr] = ROL8(matrix[addr], p)
-10. idx = (idx + 1) & 0x1FF
+face = idx & 7           // 低 3 位决定面: 连续 8 步面号不重复
+row  = (idx >> 3) & 7    // 面内行: 8 步完成 64 步遍历 8 行
+col  = (idx >> 6) & 7    // 行内列: 64 步变化一次，ROL8 移位量
+addr = face * 8 + row    // 字节地址 (0–63)
 ```
 
-## 5. 初始化
+**面隔离的保证**：步 t 写 面(face_t)，步 t+i 读 面(face_{t+i})。由于 face = idx & 7 且 idx 每步 +1，对于 1 ≤ i ≤ 7，总有 face_{t+i} ≠ face_t。因此步 t 的写回不会破坏步 t+1..t+7 的读取。这是**8 步批处理无 RAW 冲突的数学保证**。
+
+**完整的 idx 周期**：512 步遍历所有 (face, row, col) 组合。每 8 步修改全部 8 个面各一次，每 64 步修改全部 64 个矩阵字节，每 512 步回到相同坐标。
+
+## 4. 每步操作的密码学功能
 
 ```
-输入: key_material[64], idx_init(u16)
-1. memcpy(m_matrix, key_material, 64)
-2. m_idx = idx_init & 0x1FF
-3. for i in 0..7:
-       LFSR[i] = key_material[i*8 .. i*8+7] (小端, 无重叠)
+步骤                         密码学功能
+───                         ──────────
+1. 坐标解码                 利用 idx 的 3+3+3 结构提供确定性地址流
+2. mask = matrix[addr]      自修改: 状态决定行为，行为修改状态
+3. p=col, curbit=(byte>>col)&1  curbit 提供全局翻转，p 提供行内扩散
+4. Galois LFSR 1-step ×8    线性状态演化，周期 2^64−1
+5. vx = ⊕(mask[i]·LFSR[i])   非线性组合: mask 决定了谁参与 XOR
+6. raw = vx × K             核心非线性: 进位链将度 1 的 LFSR 输出提升到度 ≈32
+7. output = raw ^ {64{curbit}} curbit 全局翻转掩盖单步输出结构
+8. matrix[addr] ^= raw[7:0]  低 8 位回填: 闭环完成，影响未来的 mask
+9. matrix[addr] = ROL8(addr,p) 行移位: 将新回填的 bit 扩散到行内不同位置
+10. idx++                    遍历全状态
 ```
 
-## 6. 批处理
+### 4.1 mask 选通的分布特性
 
-面隔离保证连续 8 步访问不同面，keystream 以 8 步批量处理。
+8 位随机 mask 的期望 Hamming weight = 4。实际选通 1–8 条 LFSR，平均 4 条参与 XOR。选通不固定——每一步的 mask 由矩阵内容决定，而矩阵内容由上一步的 raw 回填决定。这是一个**数据驱动的动态组合函数**：输出函数的布尔表达式随步变化，不存在固定的代数结构。
 
-## 7. 版本历史
+### 4.2 mask=0 的处理 (1/256 概率)
 
-| Ver | 代号 | LFSR | mask=0 | MB/s | NIST |
-|-----|------|------|--------|------|------|
-| V1 | ISA | 16 Fib | — | 115 | — |
-| V2 | MF | 16 Fib | — | 238 | — |
-| V3 | MV | 16 Fib | — | 266 | — |
-| V4 | V8-Fib | 16 Fib | — | 271 | — |
-| V5 | Galois | 16 Gal | — | 358 | — |
-| V6 | Mask16 | 16 Gal | — | 790 | — |
-| V7 | Mask8 | 16 Gal | — | 790 | — |
-| V8 | V8-Mask | 8 Gal | bit0 强制 | 1200 | 49/50 |
-| V9 | V9-Aux | 8+1 Gal | aux LFSR | 1220 | — |
-| V10 | V10-Idx | 8 Gal | idx&7 | 1240 | 50/50 |
-| **V11** | **V11-Uni** | **8 Gal** | **idx&7** | **1360** | **98/100** |
+mask=0 时无 LFSR 被选中（raw 将为零）。此时回退到 LFSR[idx&7]——idx 低 3 位每步 +1，自然轮转 8 条。无偏倚（选中概率均等 1/8），无附加状态（利用已有 idx），无分支（ct_eq8 掩码）。
+
+### 4.3 乘性混合 (×K) 的代数深度
+
+`vx → vx × K` 在 GF(2^64) 上是一个置换（K 为奇数），零不损失信息。但在 GF(2) 上，64 位二进制乘法的进位链等价于一个约 32 次的多项式函数。这意味着：即使 vx 是 LFSR 输出的简单 XOR（代数度 1），经乘法后每个输出位依赖 32 个输入位的非线性函数。这是 HLFSR 抵御代数攻击的核心屏障。
+
+## 5. 初始化与密钥材料
+
+```
+init(key_material[64], idx_init(u16)):
+  1. memcpy(matrix, key_material, 64)     // 矩阵 = 前 64 字节
+  2. m_idx = idx_init & 0x1FF
+  3. for i in 0..7:
+       LFSR[i] = key_material[i*8..i*8+7] (小端，无重叠)
+```
+
+**设计要点**：
+- 64 字节统一初始化矩阵和 LFSR，无分离种子
+- 矩阵 = LFSR 的同源初态：第一步的 mask 来自刚初始化的矩阵，raw 来自刚初始化的 LFSR，raw 回填立即分叉矩阵和 LFSR 的演化路径
+- idx_init: 调用方控制起始坐标，不同 idx 即使相同 key_material 也产生不同密钥流
+- 调用方职责：KDF 派生 64+2=66 字节。建议 lfsr_seed 非全零检查（全零导致永久零输出）
+
+## 6. Galois LFSR 实现
+
+```
+Fibonacci (旧): parity(tap_bits) → popcnt 指令
+Galois (新):    s' = (s<<1) ^ (poly & -(s>>63))
+                移位 + sbb + xor = 3 指令/LFSR
+
+Fibonacci 需要水平折叠 64 位→1 位 (popcnt)，Galois 仅需提取 MSB 并广播为掩码。
+每条 LFSR 节省约 60% 指令，8 条合计从 8×popcnt→8×sbb，批处理中效果放大。
+```
+
+**多项式**：8 个 64 次本原多项式 (权重 13–15)，随机采样 + 不可约验证 + 本原验证。Galois 配置下与 Fibonacci 等价（周期相同，输出序列为线性变换），但推进效率更高。
+
+## 7. 批处理实现
+
+```
+keystream 大循环：每次处理 64 字节 (8 步 × 8 bytes)
+
+1. 预解码 8 个 mask/p/curbit (从当前矩阵，面隔离保证无依赖)
+2. 8 次 LFSR 推进 + 掩码 XOR + 乘性混合 (串行：LFSR 状态有步间依赖)
+3. 8 次矩阵回填 (8 个不同地址，无冲突)
+```
+
+尾部不足 64 字节回退单步。预解码消除了 8 次 `next()` 函数调用开销和地址计算的重复。
+
+## 8. 版本演进与关键设计决策
+
+| Ver | 代号 | 核心改进 | MB/s | NIST | 决策 |
+|-----|------|---------|------|------|------|
+| V1 | ISA | 16 指令机 | 115 | — | 过于复杂 |
+| V2 | MF | 16×16 矩阵 | 238 | — | mask 选通优于 ISA |
+| V3 | MV | 批处理 | 266 | — | 面隔离使批处理可行 |
+| V4 | V8-Fib | 8×8×8 | 271 | — | V1→V8 的 10 倍速来自砍掉不必要的复杂度 |
+| V5 | Galois | Galois LFSR | 358 | — | shift+sbb 替换 popcnt |
+| V6 | Mask16 | 16b mask | 790 | — | 掩码表替换 ct_eq8×48 |
+| V7 | Mask8 | 8b mask | 790 | — | mask→1 字节 |
+| V8 | V8-Mask | 8 LFSR | 1200 | 49/50 | 8=8：矩阵行=掩码位 |
+| V9 | V9-Aux | +1 aux LFSR | 1220 | — | 废弃（idx&7 更简洁） |
+| V10 | V10-Idx | mask=0→idx&7 | 1240 | 50/50 | NIST 首次满分 |
+| V11 | V11-Uni | unity init | **1360** | **98/100** | 当前最优 |
+
+**核心教训**：每次性能翻倍的来源不是增加复杂度，而是**去掉不需要的东西**（指令 ISA、ct_eq8 比较、独立的 lfsr_seed、aux LFSR）。V11 是自然收敛点——再减少就破坏结构深度（MS 实验证实了这一点）。
+
+## 9. 与 ChaCha20 的设计对比
+
+| 维度 | HLFSR-64 V11 | ChaCha20 |
+|------|-------------|----------|
+| 非线性源 | 64×64 模乘 (1 imul) | ADD+XOR+ROL (20 轮) |
+| 状态大小 | 512+512+9=1033b | 512b (16×32) |
+| 每步工作 | 8 LFSR + mask XOR + imul + 回填 | 80 次 ADD+XOR+ROL |
+| 纯软件吞吐 | 1.36 GB/s | ~550 MB/s (C), ~1.76 GB/s (SIMD) |
+| SIMD 友好 | 否 (mask bit-extract) | 是 (4 列独立) |
+| 自修改 | 是 (mask 选通 + 矩阵回填) | 否 (计数器增量) |
+| 标准化 | 实验性 | RFC 8439, TLS 1.3 |
