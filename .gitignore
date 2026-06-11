@@ -42,3 +42,11 @@ benchmarks/
 CLAUDE.md
 
 *.7z
+*.pdf
+*.aux
+*.log
+*.out
+*.toc
+*.synctex.gz
+specs/paper/*.log
+specs/paper/*.aux

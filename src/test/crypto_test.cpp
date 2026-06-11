@@ -181,10 +181,70 @@ static void test_diff_distribution() {
     printf("\n");
 }
 
+// ============================================================
+// 4. 线性分析: 随机线性掩码逼近 Linear Approximation Table
+// ============================================================
+static void test_linear() {
+    printf("=== Linear Bias Estimation ===\n");
+    printf("  Method: random input masks α, measure output-bit linear bias\n");
+    printf("  bias = |Pr[f(x)⊕f(x⊕α) at bit P = 0] - 0.5|\n\n");
+
+    const int MASKS = 2000;  // random α masks
+    const int PAIRS = 200;   // key pairs per mask
+    const int BIT_POS = 0;   // test output bit 0 (any bit works)
+
+    hlfsr64::u16 idx = 0x100;
+    double max_bias = 0, sum_bias = 0;
+    int count = 0;
+
+    printf("  testing %d masks × %d pairs...\n", MASKS, PAIRS);
+
+    for (int m = 0; m < MASKS; m++) {
+        // 随机 512-bit 输入掩码 α
+        hlfsr64::u8 alpha[64];
+        for (int i = 0; i < 64; i++) alpha[i] = (hlfsr64::u8)(rand() & 0xFF);
+
+        int zeros = 0;
+        for (int p = 0; p < PAIRS; p++) {
+            // 随机基础输入 x
+            hlfsr64::u8 x[64];
+            for (int i = 0; i < 64; i++) x[i] = (hlfsr64::u8)(rand() & 0xFF);
+
+            // x⊕α
+            hlfsr64::u8 xa[64];
+            for (int i = 0; i < 64; i++) xa[i] = x[i] ^ alpha[i];
+
+            hlfsr64 c1, c2;
+            c1.init(x, idx);
+            c2.init(xa, idx);
+            bool b1 = (c1.next() >> BIT_POS) & 1;
+            bool b2 = (c2.next() >> BIT_POS) & 1;
+            if (b1 == b2) zeros++;
+        }
+        double bias = fabs(zeros / (double)PAIRS - 0.5);
+        if (bias > max_bias) max_bias = bias;
+        sum_bias += bias;
+        count++;
+
+        if ((m + 1) % 500 == 0)
+            printf("  %d/%d masks, max_bias=%.6f, avg_bias=%.6f\n",
+                   m + 1, MASKS, max_bias, sum_bias / count);
+    }
+
+    double avg_bias = sum_bias / count;
+    // 理论期望: 随机函数的 bias ~ 1/sqrt(PAIRS) ≈ 0.07
+    double noise_floor = 1.0 / sqrt(PAIRS);
+    printf("\n  max bias:  %.6f  (noise floor: %.6f)\n", max_bias, noise_floor);
+    printf("  avg bias:  %.6f\n", avg_bias);
+    printf("  conclusion: %s\n\n",
+           max_bias < noise_floor * 3 ? "PASS — no detectable linear bias" : "elevated — investigate");
+}
+
 int main() {
     srand(0x12345678);
     test_differential();
     test_diff_distribution();
     test_algebraic_degree();
+    test_linear();
     return 0;
 }

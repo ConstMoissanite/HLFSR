@@ -144,7 +144,7 @@ keystream 大循环：每次处理 64 字节 (8 步 × 8 bytes)
 | 多项式 | `polynomials.md` |
 | 性能变化 | `benchmarks.md` |
 | 协议层 | `protocol.md` + `api.md` |
-| 安全性影响 | `safety/analysis.md` |
+| 安全性影响 | `safety/analysis.md` + `paper/paper.tex` |
 
 **验证链（不可省略）**：`make test → make bench → make golomb → commit`
 
