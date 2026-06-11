@@ -27,8 +27,8 @@ void hlfsr64::init(const u8 km[64], u16 idx_init) {
         for (int j = 0; j < 8; j++) val |= (u64)km[i * 8 + j] << (j * 8);
         m_lfsr[i] = val;
     }
-    // 启动混合: 256 步预热 (对齐 Grain-128/MICKEY, 覆盖全部 64 字节矩阵 4 次)
-    for (int i = 0; i < 256; i++) next();
+    // 启动混合: 512 步预热 (对齐 Trivium 级别, 覆盖全部 64 字节矩阵 8 次)
+    for (int i = 0; i < 512; i++) next();
 }
 
 hlfsr64::u64 hlfsr64::advance_lfsr(u8 mask_byte, u16 step_idx) {
@@ -60,7 +60,7 @@ hlfsr64::u64 hlfsr64::next() {
     u64 raw    = advance_lfsr(mask, m_idx);
     u64 output = raw ^ (0ULL - curbit);
 
-    m_matrix[ba] ^= (u8)(raw & 0xFF);
+    m_matrix[ba] ^= (u8)(((raw & 0xFF) * 0xBF58476D1CE4E5B9ULL) & 0xFF);
     m_matrix[ba]  = rol8(m_matrix[ba], p);
 
     m_idx = (m_idx + 1) & 0x1FF;
@@ -98,7 +98,7 @@ void hlfsr64::keystream(void* out, std::size_t bytes) {
         // 4. 回填矩阵（8 个不同面，互不冲突）
         for (int i = 0; i < 8; i++) {
             u8 addr = ba8[i];
-            m_matrix[addr] ^= (u8)(raw[i] & 0xFF);
+            m_matrix[addr] ^= (u8)(((raw[i] & 0xFF) * 0xBF58476D1CE4E5B9ULL) & 0xFF);
             m_matrix[addr]  = rol8(m_matrix[addr], pv[i] & 7);
         }
 

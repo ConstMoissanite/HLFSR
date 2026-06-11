@@ -73,50 +73,49 @@ static void test_differential() {
 }
 
 // ============================================================
-// 2. 代数度检测: 高阶差分 (d 阶差分应为 0 若代数度 < d)
+// 2. 代数度检测: 高阶差分 (自适应: 高度数减少 trial 数以控制时间)
 // ============================================================
 static void test_algebraic_degree() {
     printf("=== Algebraic Degree Estimation ===\n");
     printf("  Method: d-th order differential over random affine subspaces\n");
     printf("  If output sum = 0 for all d-dim subspaces, degree < d\n\n");
 
-    const int MAX_DEG = 8;
-    const int TRIALS = 50;
+    const int MAX_DEG = 16;
+    // 自适应: 低 degree 多 trial, 高 degree 少 (因为 2^d 贵)
+    int trials_table[17] = {0, 100, 80, 60, 40, 25, 15, 10, 8, 6, 5, 4, 3, 3, 2, 2, 2};
 
     hlfsr64::u8 km[64];
     for (int i = 0; i < 64; i++) km[i] = (hlfsr64::u8)(rand() & 0xFF);
     hlfsr64::u16 idx = 0x100;
 
-    printf("  deg  non-zero-rate  conclusion\n");
-    printf("  ---  -------------  ----------\n");
+    printf("  deg  trials  non-zero-rate  conclusion\n");
+    printf("  ---  ------  -------------  ----------\n");
 
     for (int d = 1; d <= MAX_DEG; d++) {
+        int TRIALS = trials_table[d];
         int non_zero = 0;
         for (int t = 0; t < TRIALS; t++) {
-            // 随机选 d 个 bit 位置作为子空间基
             int basis[16];
-            for (int b = 0; b < d; b++) basis[b] = rand() % 512; // 64 bytes × 8 bits
+            for (int b = 0; b < d; b++) basis[b] = rand() % 512;
 
-            // 遍历子空间所有 2^d 个元素, XOR 输出
             hlfsr64::u64 sum = 0;
-            int subspace_size = 1 << d;
-            for (int mask = 0; mask < subspace_size; mask++) {
+            int N = 1 << d;
+            for (int mask = 0; mask < N; mask++) {
                 hlfsr64::u8 km_sub[64]; memcpy(km_sub, km, 64);
                 for (int b = 0; b < d; b++)
                     if (mask & (1 << b)) {
-                        int bi = basis[b] / 8;
-                        int bb = basis[b] % 8;
-                        km_sub[bi] ^= (1 << bb);
+                        km_sub[basis[b] / 8] ^= (1 << (basis[b] % 8));
                     }
                 hlfsr64 c;
                 c.init(km_sub, idx);
-                sum ^= c.next(); // 第一输出位
+                sum ^= c.next();
             }
             if (sum != 0) non_zero++;
         }
         double rate = non_zero * 100.0 / TRIALS;
-        printf("  %3d  %13.0f%%       %s%d\n", d, rate,
+        printf("  %3d  %6d  %13.0f%%       %s%d\n", d, TRIALS, rate,
                rate > 0 ? "degree >= " : "degree < ", d);
+        if (rate == 0) break; // 一旦全是零, 更高维度也全是零
     }
     printf("\n");
 }
