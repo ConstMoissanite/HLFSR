@@ -27,8 +27,8 @@ void hlfsr64::init(const u8 km[64], u16 idx_init) {
         for (int j = 0; j < 8; j++) val |= (u64)km[i * 8 + j] << (j * 8);
         m_lfsr[i] = val;
     }
-    // 启动混合: 64 步预热, 覆盖全部 64 字节矩阵各一次, 消灭初始状态直接暴露
-    for (int i = 0; i < 64; i++) next();
+    // 启动混合: 256 步预热 (对齐 Grain-128/MICKEY, 覆盖全部 64 字节矩阵 4 次)
+    for (int i = 0; i < 256; i++) next();
 }
 
 hlfsr64::u64 hlfsr64::advance_lfsr(u8 mask_byte, u16 step_idx) {
