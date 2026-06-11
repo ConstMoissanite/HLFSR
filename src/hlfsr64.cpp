@@ -18,9 +18,8 @@ static inline hlfsr64::u8 rol8(hlfsr64::u8 x, int n) {
 }
 
 void hlfsr64::init(const u8 km[64], u16 idx_init) {
-    // 退化态检测: 全零 key_material → 永久零输出
     const u64* p = (const u64*)km;
-    if ((p[0]|p[1]|p[2]|p[3]|p[4]|p[5]|p[6]|p[7]) == 0) return; // 拒绝全零种子
+    if ((p[0]|p[1]|p[2]|p[3]|p[4]|p[5]|p[6]|p[7]) == 0) return;
     std::memcpy(m_matrix, km, 64);
     m_idx = idx_init & 0x1FF;
     for (int i = 0; i < 8; i++) {
@@ -28,6 +27,8 @@ void hlfsr64::init(const u8 km[64], u16 idx_init) {
         for (int j = 0; j < 8; j++) val |= (u64)km[i * 8 + j] << (j * 8);
         m_lfsr[i] = val;
     }
+    // 启动混合: 64 步预热, 覆盖全部 64 字节矩阵各一次, 消灭初始状态直接暴露
+    for (int i = 0; i < 64; i++) next();
 }
 
 hlfsr64::u64 hlfsr64::advance_lfsr(u8 mask_byte, u16 step_idx) {
