@@ -71,17 +71,23 @@ mask=0 时无 LFSR 被选中（raw 将为零）。此时回退到 LFSR[idx&7]—
 
 ```
 init(key_material[64], idx_init(u16)):
-  1. memcpy(matrix, key_material, 64)     // 矩阵 = 前 64 字节
-  2. m_idx = idx_init & 0x1FF
-  3. for i in 0..7:
-       LFSR[i] = key_material[i*8..i*8+7] (小端，无重叠)
+  1. 拒绝全零种子 (64B 按 u64 OR 为 0)
+  2. memcpy(matrix, key_material, 64)
+  3. m_idx = idx_init & 0x1FF
+  4. for i in 0..7:
+       LFSR[i] = key_material[i*8..i*8+7] (小端, 无重叠)
+  5. 运行 64 步 next() 并丢弃输出  ← 启动混合 (见下文)
 ```
 
 **设计要点**：
-- 64 字节统一初始化矩阵和 LFSR，无分离种子
-- 矩阵 = LFSR 的同源初态：第一步的 mask 来自刚初始化的矩阵，raw 来自刚初始化的 LFSR，raw 回填立即分叉矩阵和 LFSR 的演化路径
-- idx_init: 调用方控制起始坐标，不同 idx 即使相同 key_material 也产生不同密钥流
-- 调用方职责：KDF 派生 64+2=66 字节。建议 lfsr_seed 非全零检查（全零导致永久零输出）
+- 64 字节统一初始化 matrix 和 LFSR，无分离种子
+- **启动混合 (64 步预热)**：init 完成后立即运行 64 步 next() 丢弃输出。原因：
+  - 未混合时第一步输出直接暴露 key_material 的原始字节——mask=km[0]，参与 XOR 的 LFSR 状态 = km[0*8..7]
+  - 64 步确保每步修改 1 个不同的 matrix 字节，完成一次全局覆盖
+  - 第 65 步输出依赖的是混洗后的状态，初始方程不再可直列
+  - 64 步 ≈ 0.6µs，对吞吐无影响（64 MiB 块下 < 0.001%）
+- idx_init: 调用方控制起始坐标，不预热 idx 即从指定位置开始
+- 调用方职责：KDF 派生 64+2=66 字节
 
 ## 6. Galois LFSR 实现
 
