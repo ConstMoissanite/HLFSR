@@ -78,3 +78,7 @@ uint8_t buf[1024];
 ctx.keystream(buf, sizeof(buf));
 for (auto& b : buf) b ^= plaintext[i];
 ```
+
+---
+
+> 📋 本文档随 `src/hlfsr64.*` 变更同步更新。维护规则见 [specs/design.md §9](design.md#9-文档维护规则)。

@@ -1,4 +1,4 @@
-# HLFSR-64 V10-Idx 基底 LFSR 多项式
+# HLFSR-64 V11-Uni 基底 LFSR 多项式
 
 8 条 64 位 Galois LFSR，权重 13–15。全部通过不可约+本原验证。
 
@@ -16,3 +16,7 @@ static const u64 POLY[8] = {
 ```
 
 生成: `tools/polygen_high.cpp` (随机采样 + 软件 carryless multiply)
+
+---
+
+> 📋 本文档随  变更同步更新。维护规则见 [specs/design.md §9](design.md#9-文档维护规则)。

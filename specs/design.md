@@ -126,7 +126,25 @@ keystream 大循环：每次处理 64 字节 (8 步 × 8 bytes)
 
 **核心教训**：每次性能翻倍的来源不是增加复杂度，而是**去掉不需要的东西**（指令 ISA、ct_eq8 比较、独立的 lfsr_seed、aux LFSR）。V11 是自然收敛点——再减少就破坏结构深度（MS 实验证实了这一点）。
 
-## 9. 与 ChaCha20 的设计对比
+## 9. 文档维护规则
+
+本文件是 HLFSR-64 的权威技术规格书。**任何 `src/hlfsr64.hpp` 或 `src/hlfsr64.cpp` 的变更必须同步更新以下文档**：
+
+| 变更类型 | 需更新的文档 |
+|---------|------------|
+| 版本号/常量 | `hlfsr64.hpp` 宏 + `design.md` §2 |
+| API 签名 | `api.md` |
+| 核心算法逻辑 | `design.md` §4 + `isa.md` + `safety/analysis.md` |
+| 多项式 | `polynomials.md` |
+| 性能变化 | `benchmarks.md` |
+| 协议层 | `protocol.md` + `api.md` |
+| 安全性影响 | `safety/analysis.md` |
+
+**验证链（不可省略）**：`make test → make bench → make golomb → commit`
+
+版本号遵循 `hlfsr64.hpp` 的 `HLFSR_VERSION` 宏，版本历史记录在 `design.md` §8。
+
+## 10. 与 ChaCha20 的设计对比
 
 | 维度 | HLFSR-64 V11 | ChaCha20 |
 |------|-------------|----------|

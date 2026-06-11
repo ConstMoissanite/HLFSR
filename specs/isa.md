@@ -1,4 +1,4 @@
-# HLFSR-64 V10-Idx 指令格式
+# HLFSR-64 V11-Uni 指令格式
 
 ## 概述
 
@@ -26,8 +26,12 @@ LFSR  X   raw = mask ? (⊕ mask[i]·LFSR[i])×K : LFSR[idx&7]×K
 
 ## 与前期对比
 
-| | V8-Mask | V9-Aux | **V10-Idx** |
+| | V8-Mask | V9-Aux | **V11-Uni** |
 |---|---------|--------|-------------|
 | LFSR | 8 | 9 (8+aux) | **8** |
 | mask=0 | bit0 强制 1 | aux LFSR | **LFSR[idx&7]** |
 | 附加上下文 | — | aux LFSR 状态 | **idx (已存在)** |
+
+---
+
+> 📋 本文档随  变更同步更新。维护规则见 [specs/design.md §9](design.md#9-文档维护规则)。

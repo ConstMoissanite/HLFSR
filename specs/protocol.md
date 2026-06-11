@@ -68,3 +68,7 @@ auto wire = hlfsr_proto::encrypt(plaintext, len, recv_pub);
 auto pt = hlfsr_proto::decrypt(wire.data(), wire.size(), recv_priv);
 if (pt.empty()) { /* auth failure */ }
 ```
+
+---
+
+> 📋 本文档随  变更同步更新。维护规则见 [specs/design.md §9](design.md#9-文档维护规则)。

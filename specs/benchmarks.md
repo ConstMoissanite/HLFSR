@@ -73,3 +73,7 @@ HLFSR 面积效率 4.6× ChaCha20，1.45× AES。关键路径在乘法器（天�
 - L3: 36 MB
 - GCC: 16.1.0 (MSYS2 MinGW64)
 - OpenSSL: 3.x
+
+---
+
+> 📋 本文档随 `src/hlfsr64.*` 变更同步更新。维护规则见 [specs/design.md §9](design.md#9-文档维护规则)。
