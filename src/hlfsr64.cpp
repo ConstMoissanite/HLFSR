@@ -20,14 +20,25 @@ static inline hlfsr64::u8 rol8(hlfsr64::u8 x, int n) {
 void hlfsr64::init(const u8 km[64], u16 idx_init) {
     const u64* p = (const u64*)km;
     if ((p[0]|p[1]|p[2]|p[3]|p[4]|p[5]|p[6]|p[7]) == 0) return;
-    std::memcpy(m_matrix, km, 64);
     m_idx = idx_init & 0x1FF;
+
+    // ROTL37 逐字 → w[i] × w[(i+1)&7]_rot37 → 纯自混合，无外部常数
+    u64 w[8];
     for (int i = 0; i < 8; i++) {
         u64 val = 0;
         for (int j = 0; j < 8; j++) val |= (u64)km[i * 8 + j] << (j * 8);
-        m_lfsr[i] = val;
+        w[i] = val;
     }
-    // 启动混合: 512 步预热 (对齐 Trivium 级别, 覆盖全部 64 字节矩阵 8 次)
+    u64 matrix[8], lfsr8[8];
+    for (int i = 0; i < 8; i++) {
+        u64 r1 = (w[(i+1) & 7] << 37) | (w[(i+1) & 7] >> 27);  // 下一字 ROTL37
+        u64 r2 = (w[(i+3) & 7] << 21) | (w[(i+3) & 7] >> 43);  // 隔二字 ROTL21
+        matrix[i] = w[i] * r1;                                    // w[i] × w[i+1]_rot37
+        lfsr8[i]  = w[(i+4) & 7] * r2;                           // w[i+4] × w[i+3]_rot21 (对角异源)
+    }
+    std::memcpy(m_matrix, matrix, 64);
+    std::memcpy(m_lfsr,   lfsr8,  64);
+
     for (int i = 0; i < 512; i++) next();
 }
 
