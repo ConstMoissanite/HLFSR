@@ -37,6 +37,24 @@ void hlfsr64::init(const u8 km[64], u16 idx_init) {
         mm[i] = pool[i]                * pool[((i+1)&7)+8]  * pool[((i+2)&7)+16];
         ml[i] = pool[(i+4)&7]          * pool[((i+5)&7)+8]  * pool[((i+6)&7)+16];
     }
+    // MDS 8×8 over GF(2^8): 逐列混合, 字节级全覆盖扩散
+    for (int col = 0; col < 8; col++) {
+        u8 cm[8], cl[8];
+        u8* mb = (u8*)mm, *lb = (u8*)ml;
+        for (int r = 0; r < 8; r++) { cm[r] = mb[r*8+col]; cl[r] = lb[r*8+col]; }
+        // circulant MDS: first row [2,3,1,1,1,1,1,1]
+        auto xt = [](u8 b){ return (b<<1)^((b>>7)?0x1B:0); };
+        auto gm = [&](u8 a, u8 b){ u8 r=0; for(int k=0;k<8;k++){if(b&1)r^=a;a=xt(a);b>>=1;} return r; };
+        for (int r = 0; r < 8; r++) {
+            u8 sm=0, sl=0;
+            for (int j = 0; j < 8; j++) {
+                int d = (j-r)&7;
+                u8 c = (d==0)?2 : (d==1)?3 : 1;
+                sm ^= gm(c, cm[j]); sl ^= gm(c, cl[j]);
+            }
+            mb[r*8+col]=sm; lb[r*8+col]=sl;
+        }
+    }
     std::memcpy(m_matrix, mm, 64);
     std::memcpy(m_lfsr,   ml, 64);
     for (int i = 0; i < 64; i++) next();
