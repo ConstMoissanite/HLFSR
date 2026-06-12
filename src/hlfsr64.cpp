@@ -22,24 +22,24 @@ void hlfsr64::init(const u8 km[64], u16 idx_init) {
     if ((p[0]|p[1]|p[2]|p[3]|p[4]|p[5]|p[6]|p[7]) == 0) return;
     m_idx = idx_init & 0x1FF;
 
-    // ROTL37 逐字 → w[i] × w[(i+1)&7]_rot37 → 纯自混合，无外部常数
-    u64 w[8];
+    // 24 词池: w[8] + ROTL23(w[8]) + ROTL41(w[8])
+    u64 pool[24];
     for (int i = 0; i < 8; i++) {
         u64 val = 0;
         for (int j = 0; j < 8; j++) val |= (u64)km[i * 8 + j] << (j * 8);
-        w[i] = val;
+        pool[i]      = val;
+        pool[i+8]    = (val << 23) | (val >> 41);  // ROTL23
+        pool[i+16]   = (val << 41) | (val >> 23);  // ROTL41
     }
-    u64 matrix[8], lfsr8[8];
+    // 三角乘积: 每项 = pool[a] × pool[b] × pool[c], 三组各取一
+    u64 mm[8], ml[8];
     for (int i = 0; i < 8; i++) {
-        u64 r1 = (w[(i+1) & 7] << 37) | (w[(i+1) & 7] >> 27);  // 下一字 ROTL37
-        u64 r2 = (w[(i+3) & 7] << 21) | (w[(i+3) & 7] >> 43);  // 隔二字 ROTL21
-        matrix[i] = w[i] * r1;                                    // w[i] × w[i+1]_rot37
-        lfsr8[i]  = w[(i+4) & 7] * r2;                           // w[i+4] × w[i+3]_rot21 (对角异源)
+        mm[i] = pool[i]                * pool[((i+1)&7)+8]  * pool[((i+2)&7)+16];
+        ml[i] = pool[(i+4)&7]          * pool[((i+5)&7)+8]  * pool[((i+6)&7)+16];
     }
-    std::memcpy(m_matrix, matrix, 64);
-    std::memcpy(m_lfsr,   lfsr8,  64);
-
-    for (int i = 0; i < 512; i++) next();
+    std::memcpy(m_matrix, mm, 64);
+    std::memcpy(m_lfsr,   ml, 64);
+    for (int i = 0; i < 64; i++) next();
 }
 
 hlfsr64::u64 hlfsr64::advance_lfsr(u8 mask_byte, u16 step_idx) {
