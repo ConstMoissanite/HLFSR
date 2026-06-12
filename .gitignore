@@ -50,3 +50,7 @@ CLAUDE.md
 *.synctex.gz
 specs/paper/*.log
 specs/paper/*.aux
+experiments/
+*.txt
+!specs/**/*.txt
+!README.md
