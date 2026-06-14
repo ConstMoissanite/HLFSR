@@ -54,3 +54,4 @@ experiments/
 *.txt
 !specs/**/*.txt
 !README.md
+audit/
