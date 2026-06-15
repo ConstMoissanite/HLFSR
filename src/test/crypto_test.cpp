@@ -80,9 +80,8 @@ static void test_algebraic_degree() {
     printf("  Method: d-th order differential over random affine subspaces\n");
     printf("  If output sum = 0 for all d-dim subspaces, degree < d\n\n");
 
-    const int MAX_DEG = 16;
-    // 自适应: 低 degree 多 trial, 高 degree 少 (因为 2^d 贵)
-    int trials_table[17] = {0, 100, 80, 60, 40, 25, 15, 10, 8, 6, 5, 4, 3, 3, 2, 2, 2};
+    const int MAX_DEG = 24;
+    int trials_table[25] = {0, 100, 80, 60, 40, 25, 15, 10, 8, 6, 5, 4, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10};
 
     hlfsr64::u8 km[64];
     for (int i = 0; i < 64; i++) km[i] = (hlfsr64::u8)(rand() & 0xFF);
@@ -95,7 +94,7 @@ static void test_algebraic_degree() {
         int TRIALS = trials_table[d];
         int non_zero = 0;
         for (int t = 0; t < TRIALS; t++) {
-            int basis[16];
+            int basis[24];
             for (int b = 0; b < d; b++) basis[b] = rand() % 512;
 
             hlfsr64::u64 sum = 0;
@@ -189,8 +188,8 @@ static void test_linear() {
     printf("  Method: random input masks α, measure output-bit linear bias\n");
     printf("  bias = |Pr[f(x)⊕f(x⊕α) at bit P = 0] - 0.5|\n\n");
 
-    const int MASKS = 2000;  // random α masks
-    const int PAIRS = 200;   // key pairs per mask
+    const int MASKS = 5000;  // random α masks
+    const int PAIRS = 500;   // key pairs per mask
     const int BIT_POS = 0;   // test output bit 0 (any bit works)
 
     hlfsr64::u16 idx = 0x100;
