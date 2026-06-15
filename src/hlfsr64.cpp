@@ -69,96 +69,86 @@ void hlfsr64::init(const u8 km[64], u16 idx_init) {
 // ============================================================
 #if HLFSR_SIMD == 256
 
-hlfsr64::u64 hlfsr64::advance_lfsr(u8 mask_byte, u16 step_idx) {
+// ============================================================
+// AVX2: Galois SIMD + 全 LFSR XOR + mask 乘法调味
+// ============================================================
+hlfsr64::u64 hlfsr64::advance_lfsr(u8 mask_byte, u16) {
     __m256i lfsr01 = _mm256_loadu_si256((const __m256i*)&m_lfsr[0]);
     __m256i lfsr23 = _mm256_loadu_si256((const __m256i*)&m_lfsr[4]);
     __m256i poly01 = _mm256_loadu_si256((const __m256i*)&POLY[0]);
     __m256i poly23 = _mm256_loadu_si256((const __m256i*)&POLY[4]);
 
-    __m256i one  = _mm256_set1_epi64x(1);
+    // Galois 递推
+    __m256i one   = _mm256_set1_epi64x(1);
+    __m256i zero  = _mm256_setzero_si256();
     __m256i msb01 = _mm256_srli_epi64(lfsr01, 63);
     __m256i msb23 = _mm256_srli_epi64(lfsr23, 63);
-    __m256i sh01  = _mm256_sllv_epi64(lfsr01, one);
-    __m256i sh23  = _mm256_sllv_epi64(lfsr23, one);
-    lfsr01 = _mm256_xor_si256(sh01, _mm256_and_si256(poly01,
-             _mm256_sub_epi64(_mm256_setzero_si256(), msb01)));
-    lfsr23 = _mm256_xor_si256(sh23, _mm256_and_si256(poly23,
-             _mm256_sub_epi64(_mm256_setzero_si256(), msb23)));
+    lfsr01 = _mm256_xor_si256(_mm256_sllv_epi64(lfsr01, one),
+             _mm256_and_si256(poly01, _mm256_sub_epi64(zero, msb01)));
+    lfsr23 = _mm256_xor_si256(_mm256_sllv_epi64(lfsr23, one),
+             _mm256_and_si256(poly23, _mm256_sub_epi64(zero, msb23)));
 
     _mm256_storeu_si256((__m256i*)&m_lfsr[0], lfsr01);
     _mm256_storeu_si256((__m256i*)&m_lfsr[4], lfsr23);
 
-    __m256i mbits01 = _mm256_set_epi64x(
-        0ULL - ((mask_byte >> 3) & 1), 0ULL - ((mask_byte >> 2) & 1),
-        0ULL - ((mask_byte >> 1) & 1), 0ULL - ((mask_byte >> 0) & 1));
-    __m256i mbits23 = _mm256_set_epi64x(
-        0ULL - ((mask_byte >> 7) & 1), 0ULL - ((mask_byte >> 6) & 1),
-        0ULL - ((mask_byte >> 5) & 1), 0ULL - ((mask_byte >> 4) & 1));
+    // 全 LFSR 无条件 XOR（无掩码选通）
+    __m256i vx256 = _mm256_xor_si256(lfsr01, lfsr23);
+    __m128i vx_lo = _mm256_castsi256_si128(vx256);
+    __m128i vx_hi = _mm256_extracti128_si256(vx256, 1);
+    __m128i vx_2  = _mm_xor_si128(vx_lo, vx_hi);
+    u64 vx = _mm_extract_epi64(vx_2, 0) ^ _mm_extract_epi64(vx_2, 1);
 
-    __m256i vx = _mm256_xor_si256(
-        _mm256_and_si256(lfsr01, mbits01),
-        _mm256_and_si256(lfsr23, mbits23));
-
-    // 纯寄存器水平 XOR 归约，避免 store-forwarding 失速
-    __m128i vx_lo  = _mm256_castsi256_si128(vx);
-    __m128i vx_hi  = _mm256_extracti128_si256(vx, 1);
-    __m128i vx_2   = _mm_xor_si128(vx_lo, vx_hi);
-    u64 vx_scalar = _mm_extract_epi64(vx_2, 0) ^ _mm_extract_epi64(vx_2, 1);
-
-    u64 mz = 0ULL - (ct_eq8(mask_byte, 0) & 1);
-    u64 raw = (vx_scalar & ~mz) | (m_lfsr[step_idx & 7] & mz);
-    return raw * 0x9E3779B97F4A7C15ULL;
+    // mask 注入非线性：8b mask → 64b 奇数乘子
+    u64 mk = ((u64)mask_byte * 0xBF58476D1CE4E5B9ULL) | 1;
+    return (vx * mk) * 0x9E3779B97F4A7C15ULL;
 }
 
+// ============================================================
+// AVX-512: Galois SIMD + 全 LFSR XOR + mask 乘法调味
+// ============================================================
 #elif HLFSR_SIMD == 512
 
-hlfsr64::u64 hlfsr64::advance_lfsr(u8 mask_byte, u16 step_idx) {
+hlfsr64::u64 hlfsr64::advance_lfsr(u8 mask_byte, u16) {
     __m512i lfsr = _mm512_loadu_si512((const __m512i*)m_lfsr);
     __m512i poly = _mm512_loadu_si512((const __m512i*)POLY);
 
-    __m512i one = _mm512_set1_epi64(1);
-    __m512i msb = _mm512_srli_epi64(lfsr, 63);
-    __m512i sh  = _mm512_sllv_epi64(lfsr, one);
-    lfsr = _mm512_xor_si512(sh, _mm512_and_si512(poly,
-           _mm512_sub_epi64(_mm512_setzero_si512(), msb)));
+    __m512i one  = _mm512_set1_epi64(1);
+    __m512i zero = _mm512_setzero_si512();
+    __m512i msb  = _mm512_srli_epi64(lfsr, 63);
+    lfsr = _mm512_xor_si512(_mm512_sllv_epi64(lfsr, one),
+           _mm512_and_si512(poly, _mm512_sub_epi64(zero, msb)));
 
     _mm512_storeu_si512((__m512i*)m_lfsr, lfsr);
 
-    u64 mbits[8];
-    for (int i = 0; i < 8; i++)
-        mbits[i] = 0ULL - ((mask_byte >> i) & 1);
-    __m512i mb = _mm512_set_epi64(mbits[7], mbits[6], mbits[5], mbits[4],
-                                   mbits[3], mbits[2], mbits[1], mbits[0]);
+    // 全 LFSR 无条件 XOR 归约: 8 lanes → 1
+    __m256i lo = _mm512_castsi512_si256(lfsr);
+    __m256i hi = _mm512_extracti64x4_epi64(lfsr, 1);
+    __m256i x4 = _mm256_xor_si256(lo, hi);
+    __m128i x2 = _mm_xor_si128(_mm256_castsi256_si128(x4),
+                                _mm256_extracti128_si256(x4, 1));
+    u64 vx = _mm_extract_epi64(x2, 0) ^ _mm_extract_epi64(x2, 1);
 
-    __m512i vx = _mm512_and_si512(lfsr, mb);
-
-    // 水平 XOR 归约: 8 lanes → 1
-    __m256i vx_lo = _mm512_castsi512_si256(vx);
-    __m256i vx_hi = _mm512_extracti64x4_epi64(vx, 1);
-    __m256i vx_4  = _mm256_xor_si256(vx_lo, vx_hi);
-    __m128i vx_2  = _mm_xor_si128(_mm256_castsi256_si128(vx_4),
-                                   _mm256_extracti128_si256(vx_4, 1));
-    u64 vx_scalar = _mm_extract_epi64(vx_2, 0) ^ _mm_extract_epi64(vx_2, 1);
-
-    u64 mz = 0ULL - (ct_eq8(mask_byte, 0) & 1);
-    u64 raw = (vx_scalar & ~mz) | (m_lfsr[step_idx & 7] & mz);
-    return raw * 0x9E3779B97F4A7C15ULL;
+    // mask 注入非线性
+    u64 mk = ((u64)mask_byte * 0xBF58476D1CE4E5B9ULL) | 1;
+    return (vx * mk) * 0x9E3779B97F4A7C15ULL;
 }
 
+// ============================================================
+// 标量: 全 LFSR XOR + mask 乘法调味
+// ============================================================
 #else
-// 标量 fallback
 
-hlfsr64::u64 hlfsr64::advance_lfsr(u8 mask_byte, u16 step_idx) {
+hlfsr64::u64 hlfsr64::advance_lfsr(u8 mask_byte, u16) {
     u64 vx = 0;
     for (int i = 0; i < 8; i++) {
         u64 s   = m_lfsr[i];
         u64 msb = s >> 63;
         m_lfsr[i] = (s << 1) ^ (POLY[i] & (0ULL - msb));
-        vx ^= m_lfsr[i] & (0ULL - ((u64)(mask_byte >> i) & 1ULL));
+        vx ^= m_lfsr[i];
     }
-    u64 mz = 0ULL - (ct_eq8(mask_byte, 0) & 1);
-    u64 raw = (vx & ~mz) | (m_lfsr[step_idx & 7] & mz);
-    return raw * 0x9E3779B97F4A7C15ULL;
+    // mask 注入非线性：8b mask → 64b 奇数乘子，mask=0 → mk=1（恒等）
+    u64 mk = ((u64)mask_byte * 0xBF58476D1CE4E5B9ULL) | 1;
+    return (vx * mk) * 0x9E3779B97F4A7C15ULL;
 }
 
 #endif // HLFSR_SIMD
@@ -180,8 +170,12 @@ hlfsr64::u64 hlfsr64::next() {
     u64 raw    = advance_lfsr(mask, m_idx);
     u64 output = raw ^ (0ULL - curbit);
 
-    m_matrix[ba] ^= (u8)(((raw & 0xFF) * 0xBF58476D1CE4E5B9ULL) & 0xFF);
+    // 16b 反馈: 低 8 位回填当前地址，高 8 位打到相邻面同行
+    u64 fb = (raw & 0xFFFF) * 0xBF58476D1CE4E5B9ULL;
+    m_matrix[ba] ^= (u8)(fb & 0xFF);
     m_matrix[ba]  = rol8(m_matrix[ba], p);
+    u8 nb = (u8)(((face ^ 1) & 7) * 8 + row);
+    m_matrix[nb] ^= (u8)((fb >> 8) & 0xFF);
 
     m_idx = (m_idx + 1) & 0x1FF;
     return output;
@@ -191,7 +185,7 @@ void hlfsr64::keystream(void* out, std::size_t bytes) {
     u8* p = static_cast<u8*>(out);
 
     while (bytes >= 64) {
-        u8 pv[8], cb[8], ba8[8], mask[8];
+        u8 pv[8], cb[8], ba8[8], mask[8], nb8[8];
 
         for (int i = 0; i < 8; i++) {
             u16 t_idx = (m_idx + (u16)i) & 0x1FF;
@@ -199,6 +193,7 @@ void hlfsr64::keystream(void* out, std::size_t bytes) {
             u8 addr = f * 8 + r;
             ba8[i] = addr;
             mask[i] = m_matrix[addr];
+            nb8[i]  = (u8)(((f ^ 1) & 7) * 8 + r);
             pv[i]   = (u8)((t_idx >> 6) & 7);
             cb[i]   = (mask[i] >> pv[i]) & 1;
         }
@@ -215,8 +210,10 @@ void hlfsr64::keystream(void* out, std::size_t bytes) {
 
         for (int i = 0; i < 8; i++) {
             u8 addr = ba8[i];
-            m_matrix[addr] ^= (u8)(((raw[i] & 0xFF) * 0xBF58476D1CE4E5B9ULL) & 0xFF);
+            u64 fb = (raw[i] & 0xFFFF) * 0xBF58476D1CE4E5B9ULL;
+            m_matrix[addr] ^= (u8)(fb & 0xFF);
             m_matrix[addr]  = rol8(m_matrix[addr], pv[i] & 7);
+            m_matrix[nb8[i]] ^= (u8)((fb >> 8) & 0xFF);
         }
 
         m_idx = (m_idx + 8) & 0x1FF;
