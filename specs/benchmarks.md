@@ -1,19 +1,20 @@
-# HLFSR-64 V11-Uni 基准测试
+# HLFSR-64 基准测试
 
-> 硬件: Intel Core i9-14900HX (24C/32T, 36MB L3) · GCC 16.1.0 · -O2 -march=native · 单线程
+> 硬件: Intel Core i9-14900HX (24C/32T, 36MB L3) · GCC 16.1.0 · -O3 -march=native · 单线程
 
 ## 1. 对称加密吞吐
 
 | 算法 | 块大小 | 吞吐 | 备注 |
 |------|--------|------|------|
-| **HLFSR-64 V11-Uni** | 64 MiB | **1.36 GB/s** | 纯 C++14, 零 SIMD |
-| **HLFSR-64 V11-Uni** | 8 MiB | **1.05 GB/s** | |
-| ChaCha20 (OpenSSL C) | 8 MiB | 550 MB/s | 优化 C 实现 |
-| ChaCha20 (ref) | — | ~200 MB/s | 可移植参考实现 [supercop] |
+| **HLFSR-64 (mask-multiply)** | 8 MiB | **2.03 GB/s** | 纯 C++14, -O3 自动向量化 |
+| **HLFSR-64 (mask-multiply)** | 64 MiB | **1.87 GB/s** | 大块 L3 稳态 |
+| **HLFSR-64 (mask-multiply)** | 1 MiB | **1.75 GB/s** | 膝点在 2 MB (L2边界) |
+| ChaCha20 (OpenSSL C) | 8 MiB | 550 MB/s | 优化 C+SIMD |
+| ChaCha20 (ref) | 8 MiB | ~200 MB/s | 可移植参考实现 \cite{chacha} |
 | AES-256-GCM | 8 MiB | 1.76 GB/s | AES-NI 硬件加速 |
 | SM4-CBC | 8 MiB | 77 MB/s | 纯软件 |
 
-HLFSR-64 纯软件比 ChaCha20 优化 C 快 2.5×，比参考实现快 6–7×。
+HLFSR-64 纯软件比 ChaCha20 优化 C 快 3.7×。
 
 ## 2. ECIES 复合吞吐
 
