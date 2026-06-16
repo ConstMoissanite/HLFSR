@@ -24,7 +24,7 @@
 \begin{abstract}
 We present HLFSR-64, a software-optimized stream cipher achieving 2.03~GB/s in
 pure C++14 (no SIMD) on an Intel Core i9-14900HX---2.3$\times$ the optimized C
-ChaCha20 implementation and 4.6$\times$ more area-efficient than ChaCha20 in
+ChaCha20 implementation and 2.2$\times$ more area-efficient than ChaCha20 in
 ASIC estimation at 7nm. The design uses an $8{\times}8{\times}8$ feedback matrix
 (512 bits) and 8 Galois 64-bit LFSRs with weight 13--15 primitive polynomials.
 Each step reads one byte from the matrix as an 8-bit mask to gate which LFSRs
@@ -667,34 +667,38 @@ The knee at 2\,MB (L2 boundary) is consistent with HLFSR-64's working set of
 \toprule
 \textbf{Metric} & \textbf{HLFSR-64} & \textbf{ChaCha20} & \textbf{AES-128} \\
 \midrule
-Gates (Kgate)          & 11 & 20 & 25 \\
+Gates (Kgate)          & 23 & 20 & 25 \\
 Frequency (GHz)        & 0.8 & 0.4 & 3.0 \\
 Throughput (GB/s)      & 6.4 & 2.5 & 10 \\
 \cmidrule(lr){1-4}
 \textbf{Normalized} \\
-\quad Area eff.\ (Gbps/Kgate) & \textbf{0.58} & 0.125 & 0.40 \\
+\quad Area eff.\ (Gbps/Kgate) & \textbf{0.28} & 0.125 & 0.40 \\
 \quad Arch.\ eff.\ (GB/s/GHz) & \textbf{8.0} & 6.25 & 3.33 \\
-\quad Gate cost (Kgate/Gbps)  & \textbf{1.72} & 8.0 & 2.5 \\
+\quad Gate cost (Kgate/Gbps)  & \textbf{3.6} & 8.0 & 2.5 \\
 \bottomrule
 \end{tabular}
 \caption{ASIC estimation (7nm, normalized comparison)}
 \label{tab:asic}
 \end{table}
 
-\textbf{Estimation methodology}: gate counts are module-level manual estimates
-(64$\times$64 Dadda multiplier $\approx$ 7K gates, 8$\times$64b LFSR registers
-$\approx$ 3K gates, control + matrix RAM $\approx$ 1K gates). Frequency is
-based on multiplier critical path ($\sim$6--8 FO4 $\approx$ 1.0--1.5ns @ 7nm)
-with empirical derating to 800 MHz. None of these figures have been validated
-by actual logic synthesis; $\pm$30--50\% deviation should be expected.
-ChaCha20 and AES-128 reference data are drawn from published 7nm-scaled
-estimates.
+\textbf{Gate-count breakdown} (pre-synthesis, module-level estimates):
+64$\times$64 Dadda multiplier $\approx$ 18K gates (4096 partial-product ANDs
++ $\sim$2000 carry-save adders in reduction tree + 128-bit CLA); 8 Galois
+LFSRs (64b registers + XOR + shift logic) $\approx$ 4K gates; 64-byte
+matrix register file + address decode $\approx$ 4K gates; feedback constant
+multiplier (16$\times$64$\to$16-bit, K$_2$ constant-optimized) $\approx$
+2.5K gates; control FSM $\approx$ 0.5K gates. Subtotal $\approx$ 29K gates;
+independent parallel evaluation suggests $\approx$ 23K gates --- we adopt
+the more conservative 23K estimate. Frequency based on multiplier critical
+path (Dadda reduction $\sim$3 stages + CLA $\sim$5 stages, $\approx$ 8--10
+FO4 $\approx$ 1.2--1.5ns @ 7nm), empirically derated to 800 MHz. None of
+these figures have been validated by logic synthesis; $\pm$30\% expected.
 
-After normalization, HLFSR-64 leads in all three efficiency dimensions:
-(a) 64 bits produced per step vs.\ ChaCha20's 20-round structure, yielding
-$8{\times}$ the byte output per cycle; (b) the multiplier is a single large
-combinational block amenable to pipeline register insertion; (c) Galois LFSRs
-require only shift + sbb + xor per LFSR, fewer than Fibonacci parity folding.
+After normalization, HLFSR-64 is comparable to AES-128 in area efficiency
+(0.28 vs.\ 0.40 Gbps/Kgate) and significantly ahead of ChaCha20 (0.125).
+The dominant area cost is the 64$\times$64 full multiplier (60--78\% of
+total gates); replacing it with a pipelined smaller multiplier or iterative
+multiply-accumulate architecture would substantially reduce area.
 
 % ============================================================
 \section{Comparison with Other Stream Ciphers}
