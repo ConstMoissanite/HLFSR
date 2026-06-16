@@ -13,7 +13,7 @@
 \usepackage{algorithm}
 \usepackage{algpseudocode}
 
-\title{HLFSR-64：一种基于掩码乘法与乘性混合的\\高吞吐软件流密码算法}
+\title{HLFSR-64：一种基于乘法混合与面交叉反馈的\\高吞吐软件流密码算法}
 \author{Pt\_195\\[2mm]
 \small \texttt{3051376580@qq.com}}
 \date{2026年6月}
@@ -33,22 +33,21 @@
 
 流密码是对称密码学的基础构造之一，广泛应用于安全传输层协议（TLS 1.3）、移动通信（3GPP SNOW 3G/ZUC）、物联网轻量级加密（Grain-128AEAD）等场景。
 
-LFSR 因其硬件高效和良好代数结构，自 20 世纪 60 年代以来一直作为流密码的基本构件 \cite{golomb}。早期设计（如 A5/1、E0）遭受相关攻击 \cite{golic} 和代数攻击 \cite{courtois} 后，现代 LFSR 基流密码采用了非线性滤波（Grain \cite{grain}）、不规则钟控（Trivium \cite{trivium}）或有限状态机混合（SNOW 3G, ZUC \cite{etsi-snow}）等手段提升安全性。在软件优化方向，Salsa20/ChaCha20 系列 \cite{chacha} 采用 ARX 结构以规避查表侧信道，但需 20 轮迭代才能达到安全扩散。HLFSR-64 循 LFSR 传统但探索了一条新路径：以单条乘法指令替代多轮迭代。
+LFSR 因其硬件高效和良好代数结构，自 20 世纪 60 年代以来一直作为流密码的基本构件 \cite{golomb}。早期设计（如 A5/1、E0）遭受相关攻击 \cite{golic} 和代数攻击 \cite{courtois} 后，现代 LFSR 基流密码采用了非线性滤波、不规则钟控或有限状态机混合等手段提升安全性。当前主流流密码方案可归为以下几类：
 
-当前主流流密码方案存在如下制约：
+\textbf{ARX 结构}（加-异或-循环移位）：以 Salsa20/ChaCha20 \cite{chacha} 为代表。ChaCha20 每轮对 512 位状态执行 4 次独立的列操作和 4 次对角线操作，每列涉及 4 次 32 位 ADD、XOR 和 ROL，需 20 轮（共 80 次 ADD + 80 次 XOR + 80 次 ROL）才能达到安全扩散 \cite{chacha}。ARX 天然规避查表侧信道，已标准化为 RFC~8439 并成为 TLS~1.3 强制算法。优化 C 实现吞吐约 550\,MB/s，20 轮串行依赖限制了单核性能上限。
 
-\begin{itemize}
-\item \textbf{ChaCha20} \cite{chacha}（RFC 8439）：ARX结构，20轮串行依赖限制单核吞吐。优化C实现在通用平台上约550~MB/s。
-\item \textbf{AES-256-CTR} \cite{gcm}：AES-NI 加速下可达 10~GB/s 以上，无硬件加速的软件查表实现仅约 200~MB/s。
-\item \textbf{Grain/Trivium} \cite{grain,trivium}：硬件极致优化（$\sim$2--3K 门），逐位运算使软件吞吐 $<50$\,MB/s。
-\item \textbf{SNOW 3G/ZUC} \cite{etsi-snow}：LFSR+FSM 结构，软件吞吐 300--500\,MB/s，手机基带定制。
-\end{itemize}
+\textbf{AES 计数器模式}（AES-256-CTR \cite{gcm}）：将分组密码 AES 转化为流密码。在 AES-NI 硬件加速下可达 10\,GB/s 以上，但无硬件加速时软件查表实现受限于每字节 4 次 S-Box 查表操作，吞吐仅约 200\,MB/s。作为 NIST SP 800-38D 标准方案，AES-GCM 在 AEAD 场景中广泛部署。
 
-HLFSR-64探索了另一条技术路径：以\textbf{单条64$\times$64乘法指令同时提供扩散与非线性}，替代多轮ARX迭代操作；以\textbf{反馈状态矩阵}替代固定轮函数，实现数据依赖的组合函数动态化。本文系统阐述了HLFSR-64的算法设计、核心实现技术、安全性分析与性能评估。
+\textbf{硬件导向 LFSR 流密码}（Grain \cite{grain}、Trivium \cite{trivium}）：属 eSTREAM 项目 Profile 2（硬件优化），以极低门数（$\sim$2--3K 门）为目标。Grain 采用非线性反馈移位寄存器（NFSR）与 LFSR 级联滤波，Trivium 采用 3 条移位寄存器的 AND 组合与不规则钟控。二者均为逐位运算，在通用 CPU 上纯 C 吞吐远低于 50\,MB/s，不适合高吞吐软件场景。
+
+\textbf{LFSR + 有限状态机混合}（SNOW 3G \cite{etsi-snow}、ZUC）：采用 LFSR 产生序列输入有限状态机（FSM），FSM 输出经非线性变换产生密钥流。设计目标为手机基带处理器（ARM/DSP），软件吞吐 300--500\,MB/s。已被 3GPP 标准化（TS 35.216）用于 LTE/5G 空口加密。
+
+上述方案均在"多轮迭代"或"硬件特化"框架下取得各自的平衡。HLFSR-64 探索了另一条路径：以\textbf{单条64$\times$64乘法指令同时提供扩散与非线性}，替代多轮 ARX 迭代；以\textbf{反馈状态矩阵与掩码乘法}实现每步动态变化的非线性组合函数。本文系统阐述了 HLFSR-64 的算法设计、核心实现技术、安全性分析与性能评估。
 
 本文的主要贡献可概括为"掩码乘法 + 双乘分离 + 面交叉反馈"三方面：
 
-\textbf{掩码乘法}：将矩阵一字节映射为64位奇数乘子（$\mathsf{mk} = \mathsf{mask}\cdot K_2 \mid 1$），以乘法非线性替代逐位选通——全8条LFSR无条件异或后经$\mathsf{mk}$调味，每步产生不同的GF(2)上度$\approx 32$的置换函数。与位选通方案密码学等价，但消除了SIMD阻塞点。
+\textbf{掩码乘法}：将矩阵一字节映射为64位奇数乘子（$\mathsf{mk} = \mathsf{mask}\cdot K_2 \mid 1$），以乘法非线性替代逐位选通——全8条LFSR无条件异或后经$\mathsf{mk}$加权混合，每步产生不同的GF(2)上度$\approx 32$的置换函数。与位选通方案密码学等价，但消除了SIMD阻塞点。
 
 \textbf{双乘分离}：输出端$K_1$确保端到端统计质量，回填端$K_2$在反馈回路中累积代数深度。$\mathsf{vx}$进乘法前经$\mathrm{ROTL}_{33}$自旋转混合打破LSb线性依赖。实测代数度$\ge 24$，$2^{30}$对线性深测通过检验。
 
@@ -416,7 +415,7 @@ $\mathrm{face} = \mathrm{idx} \mathbin{\&} 7$的低3位编码将连续8步映射
 TMDTO \cite{babbage}    & 状态空间$2^{1033}$ & $>2^{516}$ 预计算 \\
 滑动攻击   & 无固定轮函数；mask/curbit由动态矩阵决定 & 不适用 \\
 差分攻击   & 乘法+矩阵反馈+$\mathrm{ROTL}_8$位重排 & 2轮后差分消除 \\
-侧信道(时间) & 常数时间实现 (ct\_eq8, imul, 固定内存模式) & 软件已缓解 \\
+侧信道(时间) & 无数据依赖分支，imul 固定延迟，常数内存模式 & 软件已缓解 \\
 \bottomrule
 \end{tabular}
 \caption{已知攻击防御总结}

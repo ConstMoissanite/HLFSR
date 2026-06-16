@@ -8,11 +8,6 @@ const hlfsr64::u64 hlfsr64::POLY[8] = {
     0x484302010C340003ULL, 0x801D001006412901ULL, 0x04429288080A1021ULL, 0x2000022052D01213ULL,
 };
 
-static inline hlfsr64::u8 ct_eq8(hlfsr64::u8 a, hlfsr64::u8 b) {
-    hlfsr64::u8 d = a ^ b;
-    hlfsr64::u8 is_nz = (d | (hlfsr64::u8)((~d + 1))) >> 7;
-    return (hlfsr64::u8)(0 - (is_nz ^ 1));
-}
 static inline hlfsr64::u8 rol8(hlfsr64::u8 x, int n) {
     n &= 7; return (hlfsr64::u8)((x << n) | (x >> (8 - n)));
 }
