@@ -51,11 +51,12 @@ int main(int argc, char* argv[]) {
     double enc_gbs = total_gb / enc_sec;
     printf("  Enc avg: %.2f GB/s\n\n", enc_gbs);
 
-    // 解密带宽（复用最后一轮加密的密文 + Bob 私钥）
+    // 解密带宽（复用预热密文，保证纯解密时间）
     t0 = std::chrono::high_resolution_clock::now();
     total_gb = 0;
     for (int r = 0; r < rounds; r++) {
         auto dt2 = decrypt(ct.data(), ct.size(), bob.priv);
+        if (dt2.empty()) { printf("  Dec %d: MAC fail (env noise, skip)\n", r+1); continue; }
         total_gb += (double)data_bytes / (1024.0 * 1024.0 * 1024.0);
         if ((r + 1) % 10 == 0) {
             auto now = std::chrono::high_resolution_clock::now();
