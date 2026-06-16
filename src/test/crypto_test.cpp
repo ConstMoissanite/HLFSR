@@ -1,17 +1,21 @@
-// crypto_test.cpp — HLFSR-64 差分 + 代数度分析
+// crypto_test.cpp — HLFSR-64 差分 + 代数度分析 + 线性偏差
 #include "../hlfsr64.hpp"
 #include <cstdio>
 #include <cstdlib>
+#include <cstdarg>
 #include <cstring>
 #include <cmath>
 #include <algorithm>
 #include <vector>
 
+static FILE* g_log = nullptr;
+#define LOG(fmt, ...) do { printf(fmt, ##__VA_ARGS__); if (g_log) fprintf(g_log, fmt, ##__VA_ARGS__); } while(0)
+
 // ============================================================
 // 1. 差分分析: 单比特翻转 → 输出差分传播 & 雪崩效应
 // ============================================================
 static void test_differential() {
-    printf("=== Differential Analysis ===\n");
+    LOG("=== Differential Analysis ===\n");
     const int N_KEYS = 100;
     const int N_STEPS = 64;
     const int BITS = 64;
@@ -51,34 +55,34 @@ static void test_differential() {
                 prob[s] += (double)changed / BITS;
             }
         }
-        if ((trial + 1) % 20 == 0) printf("  diff: %d/%d keys (×64 bits)\n", trial+1, N_KEYS);
+        if ((trial + 1) % 20 == 0) LOG("  diff: %d/%d keys (×64 bits)\n", trial+1, N_KEYS);
     }
 
     double total_samples = N_KEYS * BITS;
-    printf("\n  step  min-avalanche  max-avalanche  avg  zero-diff-rate\n");
-    printf("  ----  --------------  --------------  ----  --------------\n");
+    LOG("\n  step  min-avalanche  max-avalanche  avg  zero-diff-rate\n");
+    LOG("  ----  --------------  --------------  ----  --------------\n");
     for (int s = 0; s < std::min(16, N_STEPS); s++) {
         double avg = prob[s] / total_samples;
         double zr  = zeros[s] / total_samples * 100;
-        printf("  %4d  %14.4f  %14.4f  %4.0f%%  %6.1f%%\n",
+        LOG("  %4d  %14.4f  %14.4f  %4.0f%%  %6.1f%%\n",
                s, 0.0, 1.0, avg * 100, zr);
     }
     // 后半段汇总
     double avg_late = 0; int zr_late = 0;
     for (int s = 16; s < N_STEPS; s++) { avg_late += prob[s]; zr_late += zeros[s]; }
     avg_late /= (total_samples * (N_STEPS - 16));
-    printf("  %4s  %14s  %14s  %4.0f%%  %6.1f%%\n", "16-63", "", "", avg_late * 100,
+    LOG("  %4s  %14s  %14s  %4.0f%%  %6.1f%%\n", "16-63", "", "", avg_late * 100,
            zr_late * 100.0 / (total_samples * (N_STEPS - 16)));
-    printf("  (ideal: avg=50%%, zero-diff < 1e-18)\n\n");
+    LOG("  (ideal: avg=50%%, zero-diff < 1e-18)\n\n");
 }
 
 // ============================================================
 // 2. 代数度检测: 高阶差分 (自适应: 高度数减少 trial 数以控制时间)
 // ============================================================
 static void test_algebraic_degree() {
-    printf("=== Algebraic Degree Estimation ===\n");
-    printf("  Method: d-th order differential over random affine subspaces\n");
-    printf("  If output sum = 0 for all d-dim subspaces, degree < d\n\n");
+    LOG("=== Algebraic Degree Estimation ===\n");
+    LOG("  Method: d-th order differential over random affine subspaces\n");
+    LOG("  If output sum = 0 for all d-dim subspaces, degree < d\n\n");
 
     const int MAX_DEG = 24;
     int trials_table[25] = {0, 100, 80, 60, 40, 25, 15, 10, 8, 6, 5, 4, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10};
@@ -87,8 +91,8 @@ static void test_algebraic_degree() {
     for (int i = 0; i < 64; i++) km[i] = (hlfsr64::u8)(rand() & 0xFF);
     hlfsr64::u16 idx = 0x100;
 
-    printf("  deg  trials  non-zero-rate  conclusion\n");
-    printf("  ---  ------  -------------  ----------\n");
+    LOG("  deg  trials  non-zero-rate  conclusion\n");
+    LOG("  ---  ------  -------------  ----------\n");
 
     for (int d = 1; d <= MAX_DEG; d++) {
         int TRIALS = trials_table[d];
@@ -112,18 +116,18 @@ static void test_algebraic_degree() {
             if (sum != 0) non_zero++;
         }
         double rate = non_zero * 100.0 / TRIALS;
-        printf("  %3d  %6d  %13.0f%%       %s%d\n", d, TRIALS, rate,
+        LOG("  %3d  %6d  %13.0f%%       %s%d\n", d, TRIALS, rate,
                rate > 0 ? "degree >= " : "degree < ", d);
         if (rate == 0) break; // 一旦全是零, 更高维度也全是零
     }
-    printf("\n");
+    LOG("\n");
 }
 
 // ============================================================
 // 3. 扩展差分: 逐步输出 Hamming 距离分布
 // ============================================================
 static void test_diff_distribution() {
-    printf("=== Differential Distribution (step 0→15) ===\n");
+    LOG("=== Differential Distribution (step 0→15) ===\n");
     const int KEYS = 50;
     const int STEPS = 16;
 
@@ -160,8 +164,8 @@ static void test_diff_distribution() {
         }
     }
 
-    printf("  step  mean-HD  std-HD   min  max  ideal(50%%)\n");
-    printf("  ----  -------  ------   ---  ---  ----------\n");
+    LOG("  step  mean-HD  std-HD   min  max  ideal(50%%)\n");
+    LOG("  ----  -------  ------   ---  ---  ----------\n");
     for (int s = 0; s < STEPS; s++) {
         double sum_hd = 0, sum_sq = 0; int cnt = 0, mn = 65, mx = -1;
         for (int h = 0; h <= 64; h++) {
@@ -175,18 +179,18 @@ static void test_diff_distribution() {
         }
         double avg = sum_hd / cnt;
         double std = sqrt(sum_sq / cnt - avg * avg);
-        printf("  %4d  %7.2f  %6.2f   %3d  %3d\n", s, avg, std, mn, mx);
+        LOG("  %4d  %7.2f  %6.2f   %3d  %3d\n", s, avg, std, mn, mx);
     }
-    printf("\n");
+    LOG("\n");
 }
 
 // ============================================================
 // 4. 线性分析: 随机线性掩码逼近 Linear Approximation Table
 // ============================================================
 static void test_linear() {
-    printf("=== Linear Bias Estimation ===\n");
-    printf("  Method: random input masks α, measure output-bit linear bias\n");
-    printf("  bias = |Pr[f(x)⊕f(x⊕α) at bit P = 0] - 0.5|\n\n");
+    LOG("=== Linear Bias Estimation ===\n");
+    LOG("  Method: random input masks α, measure output-bit linear bias\n");
+    LOG("  bias = |Pr[f(x)⊕f(x⊕α) at bit P = 0] - 0.5|\n\n");
 
     const int MASKS = 5000;  // random α masks
     const int PAIRS = 500;   // key pairs per mask
@@ -196,7 +200,7 @@ static void test_linear() {
     double max_bias = 0, sum_bias = 0;
     int count = 0;
 
-    printf("  testing %d masks × %d pairs...\n", MASKS, PAIRS);
+    LOG("  testing %d masks × %d pairs...\n", MASKS, PAIRS);
 
     for (int m = 0; m < MASKS; m++) {
         // 随机 512-bit 输入掩码 α
@@ -226,24 +230,32 @@ static void test_linear() {
         count++;
 
         if ((m + 1) % 500 == 0)
-            printf("  %d/%d masks, max_bias=%.6f, avg_bias=%.6f\n",
+            LOG("  %d/%d masks, max_bias=%.6f, avg_bias=%.6f\n",
                    m + 1, MASKS, max_bias, sum_bias / count);
     }
 
     double avg_bias = sum_bias / count;
     // 理论期望: 随机函数的 bias ~ 1/sqrt(PAIRS) ≈ 0.07
     double noise_floor = 1.0 / sqrt(PAIRS);
-    printf("\n  max bias:  %.6f  (noise floor: %.6f)\n", max_bias, noise_floor);
-    printf("  avg bias:  %.6f\n", avg_bias);
-    printf("  conclusion: %s\n\n",
+    LOG("\n  max bias:  %.6f  (noise floor: %.6f)\n", max_bias, noise_floor);
+    LOG("  avg bias:  %.6f\n", avg_bias);
+    LOG("  conclusion: %s\n\n",
            max_bias < noise_floor * 3 ? "PASS — no detectable linear bias" : "elevated — investigate");
 }
 
 int main() {
     srand(0x12345678);
+
+    g_log = fopen("crypto_result.txt", "w");
+
+    LOG("=== HLFSR-64 Cryptographic Analysis ===\n");
+    LOG("Version: mask-multiply + ROTL13 feedback\n\n");
+
     test_differential();
     test_diff_distribution();
     test_algebraic_degree();
     test_linear();
+
+    if (g_log) { fclose(g_log); printf("\nResults saved to crypto_result.txt\n"); }
     return 0;
 }

@@ -1,14 +1,6 @@
-// hlfsr64.cpp — HLFSR-64 流密码核心 (标量 / AVX2 / AVX-512)
+// hlfsr64.cpp — HLFSR-64 流密码核心
 #include "hlfsr64.hpp"
 #include <cstring>
-
-#if defined(__AVX512F__) && defined(__AVX512DQ__)
-  #define HLFSR_SIMD 512
-  #include <immintrin.h>
-#elif defined(__AVX2__)
-  #define HLFSR_SIMD 256
-  #include <immintrin.h>
-#endif
 
 // 8 个 64 次本原多项式，权重 13--15
 const hlfsr64::u64 hlfsr64::POLY[8] = {
@@ -65,79 +57,8 @@ void hlfsr64::init(const u8 km[64], u16 idx_init) {
 }
 
 // ============================================================
-// advance_lfsr
+// advance_lfsr: 全 LFSR XOR + vx 自旋转 + mask 乘法调味
 // ============================================================
-#if HLFSR_SIMD == 256
-
-// ============================================================
-// AVX2: Galois SIMD + 全 LFSR XOR + mask 乘法调味
-// ============================================================
-hlfsr64::u64 hlfsr64::advance_lfsr(u8 mask_byte, u16) {
-    __m256i lfsr01 = _mm256_loadu_si256((const __m256i*)&m_lfsr[0]);
-    __m256i lfsr23 = _mm256_loadu_si256((const __m256i*)&m_lfsr[4]);
-    __m256i poly01 = _mm256_loadu_si256((const __m256i*)&POLY[0]);
-    __m256i poly23 = _mm256_loadu_si256((const __m256i*)&POLY[4]);
-
-    // Galois 递推
-    __m256i one   = _mm256_set1_epi64x(1);
-    __m256i zero  = _mm256_setzero_si256();
-    __m256i msb01 = _mm256_srli_epi64(lfsr01, 63);
-    __m256i msb23 = _mm256_srli_epi64(lfsr23, 63);
-    lfsr01 = _mm256_xor_si256(_mm256_sllv_epi64(lfsr01, one),
-             _mm256_and_si256(poly01, _mm256_sub_epi64(zero, msb01)));
-    lfsr23 = _mm256_xor_si256(_mm256_sllv_epi64(lfsr23, one),
-             _mm256_and_si256(poly23, _mm256_sub_epi64(zero, msb23)));
-
-    _mm256_storeu_si256((__m256i*)&m_lfsr[0], lfsr01);
-    _mm256_storeu_si256((__m256i*)&m_lfsr[4], lfsr23);
-
-    // 全 LFSR 无条件 XOR（无掩码选通）
-    __m256i vx256 = _mm256_xor_si256(lfsr01, lfsr23);
-    __m128i vx_lo = _mm256_castsi256_si128(vx256);
-    __m128i vx_hi = _mm256_extracti128_si256(vx256, 1);
-    __m128i vx_2  = _mm_xor_si128(vx_lo, vx_hi);
-    u64 vx = _mm_extract_epi64(vx_2, 0) ^ _mm_extract_epi64(vx_2, 1);
-
-    // mask 注入非线性：8b mask → 64b 奇数乘子
-    u64 mk = ((u64)mask_byte * 0xBF58476D1CE4E5B9ULL) | 1;
-    return (vx * mk) * 0x9E3779B97F4A7C15ULL;
-}
-
-// ============================================================
-// AVX-512: Galois SIMD + 全 LFSR XOR + mask 乘法调味
-// ============================================================
-#elif HLFSR_SIMD == 512
-
-hlfsr64::u64 hlfsr64::advance_lfsr(u8 mask_byte, u16) {
-    __m512i lfsr = _mm512_loadu_si512((const __m512i*)m_lfsr);
-    __m512i poly = _mm512_loadu_si512((const __m512i*)POLY);
-
-    __m512i one  = _mm512_set1_epi64(1);
-    __m512i zero = _mm512_setzero_si512();
-    __m512i msb  = _mm512_srli_epi64(lfsr, 63);
-    lfsr = _mm512_xor_si512(_mm512_sllv_epi64(lfsr, one),
-           _mm512_and_si512(poly, _mm512_sub_epi64(zero, msb)));
-
-    _mm512_storeu_si512((__m512i*)m_lfsr, lfsr);
-
-    // 全 LFSR 无条件 XOR 归约: 8 lanes → 1
-    __m256i lo = _mm512_castsi512_si256(lfsr);
-    __m256i hi = _mm512_extracti64x4_epi64(lfsr, 1);
-    __m256i x4 = _mm256_xor_si256(lo, hi);
-    __m128i x2 = _mm_xor_si128(_mm256_castsi256_si128(x4),
-                                _mm256_extracti128_si256(x4, 1));
-    u64 vx = _mm_extract_epi64(x2, 0) ^ _mm_extract_epi64(x2, 1);
-
-    // mask 注入非线性
-    u64 mk = ((u64)mask_byte * 0xBF58476D1CE4E5B9ULL) | 1;
-    return (vx * mk) * 0x9E3779B97F4A7C15ULL;
-}
-
-// ============================================================
-// 标量: 全 LFSR XOR + mask 乘法调味
-// ============================================================
-#else
-
 hlfsr64::u64 hlfsr64::advance_lfsr(u8 mask_byte, u16) {
     u64 vx = 0;
     for (int i = 0; i < 8; i++) {
@@ -146,15 +67,13 @@ hlfsr64::u64 hlfsr64::advance_lfsr(u8 mask_byte, u16) {
         m_lfsr[i] = (s << 1) ^ (POLY[i] & (0ULL - msb));
         vx ^= m_lfsr[i];
     }
-    // mask 注入非线性：8b mask → 64b 奇数乘子，mask=0 → mk=1（恒等）
+    vx ^= (vx << 33) | (vx >> 31);
     u64 mk = ((u64)mask_byte * 0xBF58476D1CE4E5B9ULL) | 1;
     return (vx * mk) * 0x9E3779B97F4A7C15ULL;
 }
 
-#endif // HLFSR_SIMD
-
 // ============================================================
-// next + keystream (与 SIMD 无关，复用 advance_lfsr)
+// next + keystream
 // ============================================================
 hlfsr64::u64 hlfsr64::next() {
     u8  face = (u8)(m_idx & 7);
@@ -175,7 +94,7 @@ hlfsr64::u64 hlfsr64::next() {
     m_matrix[ba] ^= (u8)(fb & 0xFF);
     m_matrix[ba]  = rol8(m_matrix[ba], p);
     u8 nb = (u8)(((face ^ 1) & 7) * 8 + row);
-    m_matrix[nb] ^= (u8)((fb >> 8) & 0xFF);
+    m_matrix[nb] ^= (u8)(fb >> 8);
 
     m_idx = (m_idx + 1) & 0x1FF;
     return output;
@@ -213,7 +132,7 @@ void hlfsr64::keystream(void* out, std::size_t bytes) {
             u64 fb = (raw[i] & 0xFFFF) * 0xBF58476D1CE4E5B9ULL;
             m_matrix[addr] ^= (u8)(fb & 0xFF);
             m_matrix[addr]  = rol8(m_matrix[addr], pv[i] & 7);
-            m_matrix[nb8[i]] ^= (u8)((fb >> 8) & 0xFF);
+            m_matrix[nb8[i]] ^= (u8)(fb >> 8);
         }
 
         m_idx = (m_idx + 8) & 0x1FF;
