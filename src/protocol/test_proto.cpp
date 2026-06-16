@@ -7,7 +7,7 @@
 using namespace hlfsr_proto;
 
 int main() {
-    printf("HLFSR-64 V10 Stream Protocol Test\n");
+    printf("HLFSR-64 Stream Protocol Test\n");
     printf("==================================\n\n");
 
     // 1. KeyGen

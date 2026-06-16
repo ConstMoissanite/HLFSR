@@ -1,4 +1,4 @@
-// hlfsr_stream.cpp — X25519 + HKDF + HLFSR-64 V10 + Poly1305
+// hlfsr_stream.cpp — X25519 + HKDF + HLFSR-64 + Poly1305
 #include "hlfsr_stream.hpp"
 #include "../hlfsr64.hpp"
 #include <openssl/evp.h>
@@ -48,7 +48,8 @@ static void hkdf(uint8_t out[HKDF_OUTPUT_LEN], const uint8_t* ikm, size_t ikm_le
     EVP_PKEY_CTX* ctx = EVP_PKEY_CTX_new_id(EVP_PKEY_HKDF, nullptr);
     if (!ctx || EVP_PKEY_derive_init(ctx) <= 0) die("HKDF init");
     if (EVP_PKEY_CTX_set_hkdf_md(ctx, EVP_sha256()) <= 0) die("HKDF md");
-    if (EVP_PKEY_CTX_set1_hkdf_salt(ctx, nullptr, 0) <= 0) die("HKDF salt");
+    // OpenSSL 3.x: nullptr salt is default, explicit call with nullptr may fail
+    { const uint8_t dummy = 0; EVP_PKEY_CTX_set1_hkdf_salt(ctx, &dummy, 0); }
     if (EVP_PKEY_CTX_set1_hkdf_key(ctx, ikm, ikm_len) <= 0) die("HKDF key");
     if (EVP_PKEY_CTX_add1_hkdf_info(ctx, info, info_len) <= 0) die("HKDF info");
     size_t len = HKDF_OUTPUT_LEN;
@@ -66,7 +67,7 @@ std::vector<uint8_t> encrypt(const uint8_t* pt, size_t pt_len,
     ecdh(shared, eph.priv, recv_pub);
 
     // 3. HKDF 派生 130 字节 (98 HLFSR + 32 Poly1305)
-    const uint8_t info[] = "HLFSR64-V11-ECIES";
+    const uint8_t info[] = "HLFSR64-ECIES";
     uint8_t derived[HKDF_OUTPUT_LEN];
     hkdf(derived, shared, 32, info, sizeof(info) - 1);
 
@@ -115,7 +116,7 @@ std::vector<uint8_t> decrypt(const uint8_t* wire, size_t wire_len,
     ecdh(shared, recv_priv, eph_pub);
 
     // 2. HKDF
-    const uint8_t info[] = "HLFSR64-V11-ECIES";
+    const uint8_t info[] = "HLFSR64-ECIES";
     uint8_t derived[HKDF_OUTPUT_LEN];
     hkdf(derived, shared, 32, info, sizeof(info) - 1);
 
