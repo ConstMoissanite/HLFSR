@@ -68,7 +68,7 @@ hlfsr64::u64 hlfsr64::advance_lfsr(u8 mask_byte, u16) {
         m_lfsr[i] = (s << 1) ^ (POLY[i] & (0ULL - msb));
         vx ^= m_lfsr[i];
     }
-    vx ^= (vx << 33) | (vx >> 31);
+    vx ^= (vx << 33) ^ (vx >> 31);  // ROTL33: halves are bit-disjoint, ^ ≡ |
     u64 mk = ((u64)mask_byte * 0xBF58476D1CE4E5B9ULL) | 1;
     return (vx * mk) * 0x9E3779B97F4A7C15ULL;
 }

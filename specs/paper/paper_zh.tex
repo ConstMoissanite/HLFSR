@@ -217,7 +217,7 @@ $\mathrm{ROTL}_k(x)$ & 循环左移 & $x$ 循环左移 $k$ 位 \\
     \State $\mathsf{lfsr}[i] \gets (\mathsf{lfsr}[i] \ll 1) \oplus (\mathrm{POLY}[i] \land (\mathsf{lfsr}[i] \gg 63)^{64})$
     \State $v_x \gets v_x \oplus \mathsf{lfsr}[i]$
 \EndFor
-\State $v_x \gets v_x \oplus ((v_x \ll 33) \lor (v_x \gg 31))$
+\State $v_x \gets v_x \oplus ((v_x \ll 33) \oplus (v_x \gg 31))$
 \State $\mathsf{mk} \gets (\mathsf{mask} \times K_2) \mid 1$
 \Comment{8b掩码$\to$64b奇数乘子，$\mathsf{mask}=0 \to \mathsf{mk}=1$（恒等）}
 \State $\mathsf{raw} \gets v_x \times \mathsf{mk} \times K_1$
