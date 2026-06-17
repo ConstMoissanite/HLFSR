@@ -1,4 +1,4 @@
-// hlfsr_stream.hpp — X25519 + HKDF + HLFSR-64 V10 + Poly1305 流协议
+// hlfsr_stream.hpp — X25519 + HKDF + HLFSR-64 + Poly1305 流协议
 #pragma once
 #include <cstdint>
 #include <cstddef>

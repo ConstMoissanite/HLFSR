@@ -2,7 +2,7 @@
 
 ## 概述
 
-基于 X25519 ECDH + HKDF-SHA256 + HLFSR-64 V11-Uni + Poly1305 的认证加密协议。ECIES 体系，48 字节消息开销。
+基于 X25519 ECDH + HKDF-SHA256 + HLFSR-64 + Poly1305 的认证加密协议。ECIES 体系，48 字节消息开销。
 
 ## 协议流程
 
@@ -12,7 +12,7 @@
 1. 生成临时 X25519 密钥对
 2. ECDH(eph_priv, bob_pub) → shared
 3. HKDF(shared, info) → 98 bytes
-   ├─ [0..63]   key_material (64B) → matrix + LFSR
+   ├─ [0..63]   key_material (64B) → init(matrix, LFSR) 经三乘积+MDS+64步预热
    ├─ [64..65]  idx_init (2B)
    └─ [66..97]  poly1305_key (32B)
 4. HLFSR 加密 → ciphertext

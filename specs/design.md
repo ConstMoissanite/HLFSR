@@ -156,12 +156,12 @@ keystream 大循环：每次处理 64 字节 (8 步 × 8 bytes)
 
 ## 10. 与 ChaCha20 的设计对比
 
-| 维度 | HLFSR-64 V11 | ChaCha20 |
+| 维度 | HLFSR-64 V12 | ChaCha20 |
 |------|-------------|----------|
-| 非线性源 | 64×64 模乘 (1 imul) | ADD+XOR+ROL (20 轮) |
+| 非线性源 | 级联模乘 (vx×mk×K₁, 2 imul) | ADD+XOR+ROL (20 轮) |
 | 状态大小 | 512+512+9=1033b | 512b (16×32) |
-| 每步工作 | 8 LFSR + mask XOR + imul + 回填 | 80 次 ADD+XOR+ROL |
-| 纯软件吞吐 | 1.36 GB/s | ~550 MB/s (C), ~1.76 GB/s (SIMD) |
-| SIMD 友好 | 否 (mask bit-extract) | 是 (4 列独立) |
-| 自修改 | 是 (mask 选通 + 矩阵回填) | 否 (计数器增量) |
+| 每步工作 | 8 LFSR + 全 XOR + vx 自旋转 + 2 imul + 16b 回填 | 80 次 ADD+XOR+ROL |
+| 纯软件吞吐 | 2.03 GB/s (-O3 自动向量化) | ~550 MB/s (C), ~1.76 GB/s (SIMD) |
+| SIMD 友好 | 是 (全异或自动向量化) | 是 (4 列独立) |
+| 反馈 | 面交叉 (16b K₂ 回填, 双面注入) | 否 (计数器增量) |
 | 标准化 | 实验性 | RFC 8439, TLS 1.3 |
