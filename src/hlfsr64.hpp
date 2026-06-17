@@ -24,7 +24,7 @@ class hlfsr64
     using u64 = std::uint64_t;
 
     // matrix[64] = 8 faces × 8 rows × 1 byte = 512 bits
-    // idx_init: 0–511
+    // idx_init: 低 9 位起始游标, 高 7 位矩阵搅拌 (128 种变体)
     void init(const u8 key_material[64], u16 idx_init);
     u64 next();
     void keystream(void *out, std::size_t bytes);

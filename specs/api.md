@@ -49,7 +49,7 @@ void init(const u8 key_material[64], u16 idx_init);
 | 参数 | 说明 |
 |------|------|
 | `key_material` | 64 字节, 拒绝全零 |
-| `idx_init` | 起始游标 0–511, 低 9 位有效 |
+| `idx_init` | 16-bit, 低 9 位起始游标 (0–511), 高 7 位矩阵搅拌 (128 种变体) |
 
 ## next
 

@@ -48,6 +48,12 @@ void hlfsr64::init(const u8 km[64], u16 idx_init) {
     }
     std::memcpy(m_matrix, mm, 64);
     std::memcpy(m_lfsr,   ml, 64);
+    // idx_init 高 7 位搅拌矩阵（128 种变体, 零额外密钥材料）
+    {
+        u8 extra = (u8)(idx_init >> 9);
+        for (int i = 0; i < 64; i++)
+            m_matrix[i] ^= (u8)(extra + (u8)(i * 0xB9));
+    }
     for (int i = 0; i < 64; i++) next();
 }
 
