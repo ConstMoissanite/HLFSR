@@ -79,13 +79,18 @@ static void test_differential() {
 // ============================================================
 // 2. 代数度检测: 高阶差分 (自适应: 高度数减少 trial 数以控制时间)
 // ============================================================
-static void test_algebraic_degree() {
-    LOG("=== Algebraic Degree Estimation ===\n");
+static void test_algebraic_degree(int MAX_DEG = 26, int DEFAULT_TRIALS = 10) {
+    LOG("=== Algebraic Degree Estimation (max deg=%d, trials=%d) ===\n", MAX_DEG, DEFAULT_TRIALS);
     LOG("  Method: d-th order differential over random affine subspaces\n");
     LOG("  If output sum = 0 for all d-dim subspaces, degree < d\n\n");
 
-    const int MAX_DEG = 24;
-    int trials_table[25] = {0, 100, 80, 60, 40, 25, 15, 10, 8, 6, 5, 4, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10};
+    std::vector<int> trials_table(MAX_DEG + 1, DEFAULT_TRIALS);
+    // 低 degree 多 trial (便宜), 高 degree 按参数
+    for (int d = 1; d <= 11 && d <= MAX_DEG; d++) {
+        int t[] = {0, 100, 80, 60, 40, 25, 15, 10, 8, 6, 5, 4};
+        trials_table[d] = t[d];
+    }
+    trials_table[0] = 0;
 
     hlfsr64::u8 km[64];
     for (int i = 0; i < 64; i++) km[i] = (hlfsr64::u8)(rand() & 0xFF);
@@ -94,11 +99,11 @@ static void test_algebraic_degree() {
     LOG("  deg  trials  non-zero-rate  conclusion\n");
     LOG("  ---  ------  -------------  ----------\n");
 
+    std::vector<int> basis(MAX_DEG);
     for (int d = 1; d <= MAX_DEG; d++) {
         int TRIALS = trials_table[d];
         int non_zero = 0;
         for (int t = 0; t < TRIALS; t++) {
-            int basis[24];
             for (int b = 0; b < d; b++) basis[b] = rand() % 512;
 
             hlfsr64::u64 sum = 0;
@@ -243,17 +248,21 @@ static void test_linear() {
            max_bias < noise_floor * 3 ? "PASS — no detectable linear bias" : "elevated — investigate");
 }
 
-int main() {
-    srand(0x12345678);
+int main(int argc, char* argv[]) {
+    int max_deg  = (argc > 1) ? atoi(argv[1]) : 26;
+    int d_trials = (argc > 2) ? atoi(argv[2]) : 10;
+    if (max_deg < 1) max_deg = 26;
+    if (d_trials < 1) d_trials = 10;
 
+    srand(0x12345678);
     g_log = fopen("crypto_result.txt", "w");
 
     LOG("=== HLFSR-64 Cryptographic Analysis ===\n");
-    LOG("Version: mask-multiply + ROTL13 feedback\n\n");
+    LOG("Version: mask-multiply + idx16 stir\n\n");
 
     test_differential();
     test_diff_distribution();
-    test_algebraic_degree();
+    test_algebraic_degree(max_deg, d_trials);
     test_linear();
 
     if (g_log) { fclose(g_log); printf("\nResults saved to crypto_result.txt\n"); }
