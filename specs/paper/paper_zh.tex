@@ -22,7 +22,7 @@
 \maketitle
 
 \begin{abstract}
-本文提出HLFSR-64，一种面向软件性能优化的流密码算法。该算法采用$8\times8\times8$位反馈空间（512位）与8条64位Galois线性反馈移位寄存器（LFSR）作为核心状态，每步将全部8条LFSR无条件异或后与掩码字节派生的奇数乘子级联相乘（$v_x \cdot \mathsf{mk} \cdot K_1$），以乘法非线性替代位选通。反馈路径取乘法结果低16位乘$K_2$后，低8位回填当前矩阵地址并做$\mathrm{ROTL}_8$行内扩散，高8位交叉注入相邻面同行，形成面间交叉反馈闭环。初始化阶段采用模乘预混合与$8\times8$ $\mathrm{GF}(2^8)$ MDS密钥编排，再进行64步预热，实现了完全扩散。在实验平台（Intel Core i9-14900HX）上，纯C++14实现（无SIMD）达到2.03~GB/s的吞吐量，为ChaCha20优化C实现的3.7倍。经NIST SP 800-22官方STS 2.1.2测试，200条1~Mbit序列全部9项有效检验通过（通过率194--200/200）。密码分析表明：差分雪崩效应达到50\%，零差分率降至0.0\%，代数度$\ge 24$，$2^{30}$对线性深测偏差$3.45\times10^{-5}$（低于$3\sigma$噪声级$9.16\times10^{-5}$，通过检验）。
+本文提出HLFSR-64，一种面向软件性能优化的流密码算法。该算法采用$8\times8\times8$位反馈空间（512位）与8条64位Galois线性反馈移位寄存器（LFSR）作为核心状态，每步将全部8条LFSR无条件异或后与掩码字节派生的奇数乘子级联相乘（$v_x \cdot \mathsf{mk} \cdot K_1$），以乘法提供非线性性。反馈路径取乘法结果低16位乘$K_2$后，低8位回填当前矩阵地址并做$\mathrm{ROTL}_8$行内扩散，高8位交叉注入相邻面同行，形成面间交叉反馈闭环。初始化阶段采用模乘预混合与$8\times8$ $\mathrm{GF}(2^8)$ MDS密钥编排，再进行64步预热，实现了完全扩散。在实验平台（Intel Core i9-14900HX）上，纯C++14实现（无SIMD）达到2.03~GB/s的吞吐量，为ChaCha20优化C实现的3.7倍。经NIST SP 800-22官方STS 2.1.2测试，200条1~Mbit序列全部9项有效检验通过（通过率194--200/200）。密码分析表明：差分雪崩效应达到50\%，零差分率降至0.0\%，代数度$\ge 24$，$2^{30}$对线性深测偏差$3.45\times10^{-5}$（低于$3\sigma$噪声级$9.16\times10^{-5}$，通过检验）。
 
 \textbf{关键词}：流密码；线性反馈移位寄存器；反馈状态机；乘性混合；MDS矩阵；NIST SP 800-22
 \end{abstract}
@@ -47,7 +47,7 @@ LFSR 因其硬件高效和良好代数结构，自 20 世纪 60 年代以来一�
 
 本文的主要贡献可概括为"掩码乘法 + 双乘分离 + 面交叉反馈"三方面：
 
-\textbf{掩码乘法}：将矩阵一字节映射为64位奇数乘子（$\mathsf{mk} = \mathsf{mask}\cdot K_2 \mid 1$），以乘法非线性替代逐位选通——全8条LFSR无条件异或后经$\mathsf{mk}$加权混合，每步产生不同的GF(2)上度$\approx 32$的置换函数。与位选通方案密码学等价，但消除了SIMD阻塞点。
+\textbf{掩码乘法}：将矩阵一字节映射为64位奇数乘子（$\mathsf{mk} = \mathsf{mask}\cdot K_2 \mid 1$），以乘法非线性为中心——全8条LFSR无条件异或后经$\mathsf{mk}$加权混合，每步产生不同的GF(2)上度$\approx 32$的置换函数。每步不同的乘子产生256种不同的GF(2)上度$\approx 32$的置换函数。
 
 \textbf{双乘分离}：输出端$K_1$确保端到端统计质量，回填端$K_2$在反馈回路中累积代数深度。$\mathsf{vx}$进乘法前经$\mathrm{ROTL}_{33}$自旋转混合打破LSb线性依赖。实测代数度$\ge 24$，$2^{30}$对线性深测通过检验。
 
@@ -111,7 +111,7 @@ HLFSR-64的总体数据流如图\ref{fig:arch}所示。系统维护1033位内部
 \draw[fbarr] (step6.west) -- (fbCorner) -- (mat.south);
 \node[font=\footnotesize, left] at ($(fbCorner)!0.5!(mat.south)$) {回填};
 \end{tikzpicture}
-\caption{HLFSR-64单步操作数据流：矩阵提供掩码选通LFSR，输出低8位经$K_2$乘法回填形成反馈闭环}
+\caption{HLFSR-64单步操作数据流：掩码经乘法映射为奇数乘子参与级联混合，16-bit反馈低8位回填当前面、高8位交叉注入相邻面}
 \label{fig:arch}
 \end{figure}
 
@@ -146,7 +146,7 @@ $\mathrm{col}$   & 3 bit  & 列号，$(\mathrm{idx} \gg 6) \bmod 8$ \\
 $\mathrm{addr}$  & 6 bit  & 字节地址，$\mathrm{face} \times 8 + \mathrm{row}$ \\
 $\mathsf{mask}$  & 8 bit  & 掩码字节，$\mathsf{matrix}[\mathrm{addr}]$ \\
 $\mathsf{curbit}$ & 1 bit & 输出翻转位，$(\mathsf{mask} \gg \mathrm{col}) \land 1$ \\
-$v_x$            & 64 bit & LFSR选通异或和 \\
+$v_x$            & 64 bit & LFSR全异或和 \\
 $\mathsf{raw}$   & 64 bit & 乘性混合结果 \\
 $K_1$            & 64 bit & 黄金比常数，$\lfloor 2^{64}/\varphi \rfloor$ \\
 $K_2$            & 64 bit & SplitMix64回填常数 \\
@@ -178,7 +178,7 @@ $\mathrm{ROTL}_k(x)$ & 循环左移 & $x$ 循环左移 $k$ 位 \\
 \label{tab:notation}
 \end{table}
 
-\textbf{位广播说明}：记号 $(x \gg 63)^{64}$ 提取 $x$ 的最高位并重复 64 次构成全 0/全 1 掩码，用于 Galois LFSR 的无分支条件异或 \cite{chacha}。$\mathsf{curbit}^{64}$ 同理将单比特广播为 64 位全 0/全 1 输出翻转字。$\mathsf{mk} = (\mathsf{mask} \times K_2) \mid 1$ 通过乘法将 8 位掩码映射为 64 位奇数乘子（$\mathsf{mask}=0$ 时 $\mathsf{mk}=1$ 恒等），替代传统的逐位选通与零掩码回退，无需额外分支。
+\textbf{位广播说明}：记号 $(x \gg 63)^{64}$ 提取 $x$ 的最高位并重复 64 次构成全 0/全 1 掩码，用于 Galois LFSR 的无分支条件异或 \cite{chacha}。$\mathsf{curbit}^{64}$ 同理将单比特广播为 64 位全 0/全 1 输出翻转字。$\mathsf{mk} = (\mathsf{mask} \times K_2) \mid 1$ 通过乘法将 8 位掩码映射为 64 位奇数乘子（$\mathsf{mask}=0$ 时 $\mathsf{mk}=1$ 恒等），mask=0 时 mk=1，自然恒等，无需额外分支处理零掩码情形。
 
 \subsection{坐标编码与面隔离}
 
@@ -218,7 +218,6 @@ $\mathrm{ROTL}_k(x)$ & 循环左移 & $x$ 循环左移 $k$ 位 \\
     \State $v_x \gets v_x \oplus \mathsf{lfsr}[i]$
 \EndFor
 \State $v_x \gets v_x \oplus ((v_x \ll 33) \lor (v_x \gg 31))$
-\Comment{ROTL$_{33}$自旋转打破LSb线性，进位链放大}
 \State $\mathsf{mk} \gets (\mathsf{mask} \times K_2) \mid 1$
 \Comment{8b掩码$\to$64b奇数乘子，$\mathsf{mask}=0 \to \mathsf{mk}=1$（恒等）}
 \State $\mathsf{raw} \gets v_x \times \mathsf{mk} \times K_1$
@@ -255,7 +254,9 @@ ml[i] &= w[(i+4)\bmod 8] \times \mathrm{ROTL}_{23}(w[(i+5)\bmod 8]) \times \math
 
 \textbf{阶段二：8$\times$8 MDS矩阵混合。}在$\mathrm{GF}(2^8)$上对$mm$和$ml$施加AES MixColumns的8$\times$8拓展——循环MDS矩阵，首行$[2,3,1,1,1,1,1,1]$。将阶段一的局部依赖扩展为全依赖：每个输出词由仅涉及3/8个输入词变为受全部8个输入词影响（分支数9）。MDS操作按字节列进行，共16次列变换（$mm$ 8列 + $ml$ 8列）。
 
-\textbf{阶段三：64步密码预热。}运行64步$\mathrm{next}()$丢弃输出，矩阵完整遍历1轮、LFSR各移位64次。三乘积+MDS已提供充分扩散，64步仅作精细调整。
+\textbf{阶段三：$\mathsf{idx}$高7 位矩阵搅拌。}$\mathsf{idx\_init}$的16位全部利用：低9位为起始步游标，高7位（0--127）经线性扩散（$\mathsf{extra} + i \times \mathtt{0xB9}$）异或到全64个矩阵字节。相同密钥材料+不同高7位$\to$128种不同初始状态，等效密钥空间扩展128倍，零热路径开销。
+
+\textbf{阶段四：64步密码预热。}运行64步$\mathrm{next}()$丢弃输出，矩阵完整遍历1轮、LFSR各移位64次。三乘积+MDS已提供充分扩散，64步仅作精细调整。
 
 传统方案中，不经三乘积+MDS处理的直接初始化需要512步预热才能达到同等安全水平。本方案将预热步数降低87.5\%（512$\to$64），初始化延迟从$\sim$5$\mu$s降至$\sim$0.6$\mu$s。
 
@@ -274,7 +275,7 @@ s' = (s \ll 1) \oplus (\mathrm{poly} \mathbin{\&} (s \gg 63)^{64})
 
 仅需3条指令（移位、减法、异或），比Fibonacci节省约60\%。在8条LFSR每步全体推进的批量场景中，Galois将每条LFSR的指令数从$\sim$8降至$\sim$3。
 
-8个多项式的非零系数个数（即 Hamming 权重）在 13--15 范围内，属中等偏高密度，以补偿每条 LFSR 因 mask 选通造成的高选中率（期望约 $50\%$）。各多项式互素，组合周期为 $\prod_{i=0}^{7}(2^{64}-1)$。全部多项式由工具随机采样并经不可约性与本原性双重验证筛选得到。
+8个多项式的非零系数个数（即 Hamming 权重）在 13--15 范围内，属中等偏高密度，以补偿每条 LFSR 在全异或结构中每条均参与输出的特性。各多项式互素，组合周期为 $\prod_{i=0}^{7}(2^{64}-1)$。全部多项式由工具随机采样并经不可约性与本原性双重验证筛选得到。
 
 \begin{table}[H]
 \centering
@@ -309,7 +310,7 @@ $\mathrm{POLY}[7]$ & \texttt{0x2000022052D01213} & 15 \\
 
 \subsection{掩码乘法的动态组合性质}
 
-每步从矩阵读取1字节 $\mathsf{mask}$，通过乘法映射为 64 位奇数乘子 $\mathsf{mk} = (\mathsf{mask} \times K_2) \mid 1$。全部8条LFSR无条件参与异或生成 $v_x$，$v_x$ 经 $\mathrm{ROTL}_{33}$ 自旋转打破LSb线性依赖后，与 $\mathsf{mk}$ 和 $K_1$ 级联相乘：$\mathsf{raw} = v_x \times \mathsf{mk} \times K_1$。$\mathsf{mk}$ 随矩阵内容每步变化（256种不同乘子），产生了256种不同的 GF(2) 上度 $\approx 32$ 的置换函数——与位选通方案在函数族大小和代数复杂度上等价，但数学结构更简洁。
+每步从矩阵读取1字节 $\mathsf{mask}$，通过乘法映射为 64 位奇数乘子 $\mathsf{mk} = (\mathsf{mask} \times K_2) \mid 1$。全部8条LFSR无条件参与异或生成 $v_x$，$v_x$ 经 $\mathrm{ROTL}_{33}$ 自旋转打破LSb线性依赖后，与 $\mathsf{mk}$ 和 $K_1$ 级联相乘：$\mathsf{raw} = v_x \times \mathsf{mk} \times K_1$。$\mathsf{mk}$ 随矩阵内容每步变化（256种不同乘子），产生了256种不同的 GF(2) 上度 $\approx 32$ 的置换函数——数学结构较为简洁。
 
 $\mathsf{mask}=0$ 时 $\mathsf{mk}=1$（恒等乘子），$\mathsf{raw} = v_x \times K_1$，自然退化为无条件异或后的单乘混合。整个路径无分支、无查表、无逐位操作，输出函数的布尔表达式随密钥流生成持续变化。反馈闭环仍为：
 \begin{equation}
@@ -376,7 +377,7 @@ $\mathrm{face} = \mathrm{idx} \mathbin{\&} 7$的低3位编码将连续8步映射
 \label{tab:degree}
 \end{table}
 
-\textbf{结论}：$d=21$--24 各 10 次试验全部 100\% 非零，排除代数度 $<24$。掩码乘法（mk = mask·K₂ | 1）将 8 位掩码映射为 64 位奇数乘子，每步产生不同的 GF(2) 上度 $\approx 32$ 的置换函数，与位选通方案等价但消除了 SIMD 阻塞点。乘法理论峰值 $\approx 32$，当前实测边界 $\ge 24$，受限于高阶差分检验的统计分辨力（$d>24$ 时 $2^d$ 超过 $1.6\times10^7$ 元素/次试验）。
+\textbf{结论}：$d=21$--24 各 10 次试验全部 100\% 非零，排除代数度 $<24$。掩码乘法（mk = mask·K₂ | 1）将 8 位掩码映射为 64 位奇数乘子，每步产生不同的 GF(2) 上度 $\approx 32$ 的置换函数，256 种乘子每步变化，构成完整的非线性函数族。乘法理论峰值 $\approx 32$，当前实测边界 $\ge 24$，受限于高阶差分检验的统计分辨力（$d>24$ 时 $2^d$ 超过 $1.6\times10^7$ 元素/次试验）。
 
 \subsubsection{线性偏差检验}
 
@@ -410,7 +411,7 @@ $\mathrm{face} = \mathrm{idx} \mathbin{\&} 7$的低3位编码将连续8步映射
 \toprule
 \textbf{攻击类型} & \textbf{防御机制} & \textbf{复杂度估计} \\
 \midrule
-相关攻击 \cite{golic}  & 掩码选通使LFSR输出不可归因；乘性混合消除字内自相关 & $>2^{200}$ \\
+相关攻击 \cite{golic}  & 掩码乘法使 LFSR 输出不可归因；乘性混合消除字内自相关 & $>2^{200}$ \\
 代数攻击 \cite{courtois} & 1033状态位 $\times$ 度$\ge 24$ $\times$ 掩码乘子变化 & $>2^{200}$ (XL/XSL) \\
 TMDTO \cite{babbage}    & 状态空间$2^{1033}$ & $>2^{516}$ 预计算 \\
 滑动攻击   & 无固定轮函数；mask/curbit由动态矩阵决定 & 不适用 \\
