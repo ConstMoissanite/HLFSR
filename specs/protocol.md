@@ -13,7 +13,7 @@
 2. ECDH(eph_priv, bob_pub) → shared
 3. HKDF(shared, info) → 98 bytes
    ├─ [0..63]   key_material (64B) → init(matrix, LFSR) 经三乘积+MDS+64步预热
-   ├─ [64..65]  idx_init (2B: 低9位起始步 + 高7位矩阵搅拌)
+   ├─ [64..65]  idx_init (2B, 低9位起始步)
    └─ [66..97]  poly1305_key (32B)
 4. HLFSR 加密 → ciphertext
 5. Poly1305(eph_pub || ct) → tag
