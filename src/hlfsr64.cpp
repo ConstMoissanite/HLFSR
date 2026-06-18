@@ -48,6 +48,12 @@ void hlfsr64::init(const u8 km[64], u16 idx_init) {
     }
     std::memcpy(m_matrix, mm, 64);
     std::memcpy(m_lfsr,   ml, 64);
+    // idx 高 7 位搅拌: km 键相关, 消除全局仿射偏移
+    {
+        u8 extra = (u8)(idx_init >> 9);
+        for (int i = 0; i < 64; i++)
+            m_matrix[i] ^= (u8)(extra * km[i] & 0x7F);
+    }
     for (int i = 0; i < 64; i++) next();
 }
 
