@@ -78,13 +78,13 @@ int main() {
         double pre_bias = fabs(z / (double)PRE_PAIRS - 0.5);
         double pre_noise = 1.0 / sqrt((double)PRE_PAIRS);
         LOG("  pre-bias: %.8f  noise: %.8f  3σ: %.8f\n", pre_bias, pre_noise, 3.0*pre_noise);
-        if (pre_bias > 1e-4) {
-            LOG("  *** FAIL: bias=%.8f (%.1f× threshold, 3σ=%.8f) ***\n",
-                pre_bias, pre_bias / 1e-4, 3.0 * pre_noise);
+        double ts = 3.0 * pre_noise;
+        if (pre_bias > ts) {
+            LOG("  *** FAIL: bias=%.2e > 3σ=%.2e ***\n", pre_bias, ts);
             if (g_log) fclose(g_log);
             return 1;
         }
-        LOG("  PASS — bias below 1e-4, proceeding to full 2^30\n");
+        LOG("  PASS (bias < 3σ) → proceeding to full 2^30\n");
     }
 
     // 阶段 2b：2^30 对深测

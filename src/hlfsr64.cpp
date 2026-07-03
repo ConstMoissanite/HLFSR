@@ -4,7 +4,9 @@
 
 // 8 个 64 次本原多项式，权重 13--15
 const hlfsr64::u64 hlfsr64::POLY[8] = {
-    0x4800203343401101ULL, 0x0416001300480117ULL, 0x58000C0310100803ULL, 0x00A0090940648023ULL,
+    0x4800203343401101ULL, 0x0416001300480117ULL,
+    0x58000C0310100803ULL,
+    0x00A0090940648023ULL,
     0x484302010C340003ULL, 0x801D001006412901ULL, 0x04429288080A1021ULL, 0x2000022052D01213ULL,
 };
 
@@ -60,7 +62,7 @@ void hlfsr64::init(const u8 km[64], u16 idx_init) {
 // ============================================================
 // advance_lfsr: 全 LFSR XOR + vx 自旋转 + mask 乘法调味
 // ============================================================
-hlfsr64::u64 hlfsr64::advance_lfsr(u8 mask_byte, u16) {
+hlfsr64::u64 hlfsr64::advance_lfsr(u8 mask_byte, u16 step_idx) {
     u64 vx = 0;
     for (int i = 0; i < 8; i++) {
         u64 s   = m_lfsr[i];
