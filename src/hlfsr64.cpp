@@ -4,7 +4,7 @@
 
 // 8 个 64 次本原多项式，权重 13--15
 const hlfsr64::u64 hlfsr64::POLY[8] = {
-    0x4800203343401101ULL, 0x0416001300480117ULL, 0x58000C0310100803ULL, 0x00A0090940648023ULL,
+    0x4800203343401101ULL, 0x0416001300480117ULL, 0x0200852202090463ULL, 0x00A0090940648023ULL,
     0x484302010C340003ULL, 0x801D001006412901ULL, 0x04429288080A1021ULL, 0x2000022052D01213ULL,
 };
 
@@ -91,7 +91,7 @@ hlfsr64::u64 hlfsr64::next() {
     u64 output = raw ^ (0ULL - curbit);
 
     // 16b 反馈: 低 8 位回填当前地址，高 8 位打到相邻面同行
-    u64 fb = (raw & 0xFFFF) * 0xBF58476D1CE4E5B9ULL;
+    u64 fb = ((raw >> 16) & 0xFFFF) * 0xBF58476D1CE4E5B9ULL;
     m_matrix[ba] ^= (u8)(fb & 0xFF);
     m_matrix[ba]  = rol8(m_matrix[ba], p);
     u8 nb = (u8)(((face ^ 1) & 7) * 8 + row);
