@@ -184,3 +184,24 @@ void hlfsr64::keystream(void* out, std::size_t bytes) {
     }
     if (bytes > 0) { u64 b = next(); for (std::size_t i=0;i<bytes;i++) p[i]=(u8)(b>>(i*8)); }
 }
+
+// 256-bit 批量密钥流 (next256 循环)
+void hlfsr64::keystream256(void* out, std::size_t bytes) {
+    u8* p = static_cast<u8*>(out);
+    while (bytes >= 32) {
+        u64 o[4];
+        next256(o);
+        for (int i = 0; i < 4; i++) {
+            u64 w = o[i];
+            p[0]=(u8)w; p[1]=(u8)(w>>8); p[2]=(u8)(w>>16); p[3]=(u8)(w>>24);
+            p[4]=(u8)(w>>32); p[5]=(u8)(w>>40); p[6]=(u8)(w>>48); p[7]=(u8)(w>>56);
+            p += 8;
+        }
+        bytes -= 32;
+    }
+    if (bytes > 0) {
+        u64 o[4]; next256(o);
+        u8* tail = (u8*)o;
+        for (std::size_t i = 0; i < bytes; i++) p[i] = tail[i];
+    }
+}

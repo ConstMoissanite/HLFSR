@@ -29,6 +29,7 @@ class hlfsr64
     u64 next();
     void next256(u64 out[4]);
     void keystream(void *out, std::size_t bytes);
+    void keystream256(void *out, std::size_t bytes);
 
   private:
     u64 advance_lfsr(u8 mask, u16 step_idx);

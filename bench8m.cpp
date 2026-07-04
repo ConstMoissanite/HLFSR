@@ -8,17 +8,15 @@ int main() {
     uint8_t km[64] = {1};
     uint8_t* buf = new uint8_t[chunk];
     hlfsr64 h; h.init(km, 0);
-    // warmup
-    { u64 out[4]; h.next256(out); }
+    { u64 tmp[4]; h.next256(tmp); }
     auto t0 = std::chrono::high_resolution_clock::now();
-    const size_t blocks = chunk / 32;  // 32 bytes = 256 bits per call
+    const size_t steps = chunk / 32;
     const int runs = 100;
     for (int r = 0; r < runs; r++) {
         h.init(km, (uint16_t)r);
-        for (size_t b = 0; b < blocks; b++) {
-            u64 out[4];
-            h.next256(out);
-        }
+        u64* p = (u64*)buf;
+        for (size_t s = 0; s < steps; s++, p += 4)
+            h.next256(p);
     }
     auto t1 = std::chrono::high_resolution_clock::now();
     double sec = std::chrono::duration<double>(t1 - t0).count();
