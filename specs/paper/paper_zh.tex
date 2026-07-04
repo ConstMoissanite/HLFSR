@@ -97,14 +97,14 @@ HLFSR-64的总体数据流如图\ref{fig:arch}所示。系统在数据流层面�
 \draw[arr] ([yshift=1.5mm]lfsr.west) -- ([yshift=1.5mm]step3.east) node[midway, above, font=\footnotesize] {64b$\times$8};
 \draw[arr] ([yshift=-1.5mm]step3.east) -- ([yshift=-1.5mm]lfsr.west) node[midway, below, font=\footnotesize] {Galois步进};
 
-% curbit path: step2.south → down → left into gap → down → step5.west
-\coordinate (cbTgt) at ([yshift=2mm]step5.west);
-\draw[arr] (step2.south) -- ++(0,-2mm) -- ++(-22mm,0) coordinate (cbL)
+% curbit path: step2.south → down → left into gap → down → step6.west
+\coordinate (cbTgt) at ([yshift=2mm]step6.west);
+\draw[arr] (step2.south) -- ++(0,-2mm) -- ++(-28mm,0) coordinate (cbL)
   -- (cbL |- cbTgt) -- (cbTgt)
   node[pos=0.2, left, font=\footnotesize] {curbit};
 
 % Output from step5
-\draw[arr] (step5.east) -- ++(15mm,0) node[right, font=\footnotesize] {64-bit keystream};
+\draw[arr] (step6.east) -- ++(15mm,0) node[right, font=\footnotesize] {4$\times$64b};
 
 % Feedback: step7.west → left (align with mat.south) → straight up into mat.south
 \coordinate (fbCorner) at (step7.west -| mat.south);
@@ -150,6 +150,7 @@ $v_x$            & 64 bit & LFSR全异或和 \\
 $\mathsf{raw}$   & 64 bit & 乘性混合结果 \\
 $K_1$            & 64 bit & 黄金比常数，$\lfloor 2^{64}/\varphi \rfloor$ \\
 $K_2$            & 64 bit & SplitMix64回填常数 \\
+$K_3$            & 64 bit & TV派生常数（MurmurHash3 finalizer）\\
 $\mathsf{matrix}$ & 512 bit & $8\times8\times8$ 反馈状态矩阵 \\
 $\mathsf{lfsr}$  & 512 bit & 8条64位 Galois LFSR \\
 $\mathrm{POLY}$  & 512 bit & 8个64次本原多项式，详见表\ref{tab:polys} \\
@@ -207,7 +208,7 @@ $\mathrm{ROTL}_k(x)$ & 循环左移 & $x$ 循环左移 $k$ 位 \\
 \label{alg:next}
 \begin{algorithmic}[1]
 \Require 全局状态 $\mathsf{matrix}[0..63], \mathsf{lfsr}[0..7], \mathsf{idx}$
-\Ensure 64-bit keystream word
+\Ensure 256-bit keystream (4 $\times$ 64-bit words)
 \State $(\mathsf{face}, \mathsf{row}, \mathsf{col}) \gets (\mathsf{idx} \land 7,\; (\mathsf{idx} \gg 3) \land 7,\; (\mathsf{idx} \gg 6) \land 7)$
 \State $\mathsf{addr} \gets \mathsf{face} \times 8 + \mathsf{row}$
 \State $\mathsf{mask} \gets \mathsf{matrix}[\mathsf{addr}]$
@@ -232,7 +233,7 @@ $\mathrm{ROTL}_k(x)$ & 循环左移 & $x$ 循环左移 $k$ 位 \\
 \State $\mathsf{matrix}[(\mathsf{face} \oplus 1) \times 8 + \mathsf{row}] \gets \mathsf{matrix}[(\mathsf{face} \oplus 1) \times 8 + \mathsf{row}] \oplus ((\mathsf{fb} \gg 8) \land \mathtt{0xFF})$
 \Comment{$K_2 = \mathtt{0xBF58476D1CE4E5B9}$；16b反馈：低8位回填当前面，高8位交叉注入相邻面}
 \State $\mathsf{idx} \gets (\mathsf{idx} + 1) \land \mathtt{0x1FF}$
-\State \Return $\mathsf{output}$
+\State \Return $\mathsf{out}[0], \mathsf{out}[1], \mathsf{out}[2], \mathsf{out}[3]$
 \end{algorithmic}
 \end{algorithm}
 
