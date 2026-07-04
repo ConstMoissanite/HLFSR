@@ -22,9 +22,9 @@
 \maketitle
 
 \begin{abstract}
-本文提出HLFSR-64，一种面向软件性能优化的流密码算法。该算法采用$8\times8\times8$位反馈空间（512位）,9Bit计数寄存器与8条64位Galois线性反馈移位寄存器（LFSR）作为核心状态，每步将全部8条LFSR无条件异或后与掩码字节派生的奇数乘子级联相乘（$v_x \cdot \mathsf{mk} \cdot K_1$），以乘法提供非线性性与扩散。反馈路径取乘法结果低16位乘$K_2$后，低8位回填当前矩阵地址并做$\mathrm{ROTL}_8$行内扩散，高8位交叉注入相邻面同行，形成面间交叉反馈闭环。初始化阶段采用模乘预混合与$8\times8$ $\mathrm{GF}(2^8)$ 的AES-Like MDS密钥编排，再进行64步预热，通过一次状态全量更新实现了完全扩散。在实验平台（Intel Core i9-14900HX）上，纯C++14实现（GNU GCC O3,无SIMD）达到5.89~GB/s的吞吐量，为ChaCha20优化C实现的10.7倍。经NIST SP 800-22官方STS 2.1.2测试，200条1~Mbit序列全部9项有效检验通过（通过率194--200/200）。密码分析表明：差分雪崩效应达到50\%，零差分率降至0.0\%，代数度具有$\ge 26$的下界，$2^{30}$对线性深测偏差$3.45\times10^{-5}$（低于$3\sigma$噪声级$9.16\times10^{-5}$，通过检验）。
+HLFSR-64是一种面向软件性能优化的流密码，采用$8\times8\times8$位反馈矩阵、8条64位Galois LFSR和9位步计数器作为状态。每步推进全部LFSR后全异或得$v_x$，经$\mathrm{ROTL}_{33}$自旋转与掩码派生的奇数乘子级联相乘产生$\mathsf{raw}$。256位输出通过单次额外乘法派生：LFSR与矩阵状态交叉后乘$K_3$，以不同旋转量生成4路乘子分别与$\mathsf{raw}$相乘，各路异或不同LFSR值消除派生相关性。反馈为$\mathsf{raw}$低16位乘$K_2$后低8位回填当前面、高8位注入相邻面。初始化采用三乘积+MDS over $\mathrm{GF}(2^8)$+键相关搅拌+64步预热。纯C++14实现（GCC -O3，无SIMD）在i9-14900HX上达到6.25~GB/s。NIST SP 800-22全部通过，差分雪崩50\%、零差率0.0\%、代数度$\ge 26$，$2^{30}$对线性深测偏差$3.45\times10^{-5}$（$<3\sigma$）。
 
-\textbf{关键词}：流密码；线性反馈移位寄存器；反馈状态机；乘性混合；MDS矩阵
+\textbf{关键词}：流密码；线性反馈移位寄存器；乘性混合；TV扩展；MDS矩阵
 \end{abstract}
 
 % ============================================================
@@ -74,8 +74,9 @@ HLFSR-64的总体数据流如图\ref{fig:arch}所示。系统在数据流层面�
 \node[block, below=of step1] (step2) {② 掩码提取\\$\mathsf{mask}=\mathsf{matrix}[\mathsf{addr}]$};
 \node[block, below=of step2] (step3) {③ LFSR推进+全异或\\$v_x=\bigoplus_{i=0}^{7}\mathsf{lfsr}_i$, ROTL$_{33}$};
 \node[block, below=of step3] (step4) {④ 掩码乘法混合\\$\mathsf{raw}=v_x\times\mathsf{mk}\times K_1$};
-\node[block, below=of step4] (step5) {⑤ curbit翻转输出\\$\mathsf{out}=\mathsf{raw}\oplus\mathsf{curbit}^{64}$};
-\node[block, below=of step5] (step6) {⑥ 16b回填+面交叉\\$\mathsf{matrix}[\mathsf{addr}]\mathbin{\hat{=}}\mathsf{fb}_{0:7}$, $\mathsf{matrix}[\mathsf{face}{\oplus}1]\mathbin{\hat{=}}\mathsf{fb}_{8:15}$};
+\node[block, below=of step4] (step5) {⑤ TV派生\\$\mathsf{tv}=\mathsf{lfsr}_{face}{\times}\mathsf{matrix}\times K_3$, ROTL};
+\node[block, below=of step5] (step6) {⑥ 256b输出\\$\mathsf{out}_i=\mathsf{raw}{\times}\mathrm{ROTL}_{r_i}(\mathsf{tv})\oplus\mathsf{lfsr}_{f_i}$};
+\node[block, below=of step6] (step7) {⑦ 16b回填+面交叉\\$\mathsf{matrix}[\mathsf{addr}]\mathbin{\hat{=}}\mathsf{fb}_{0:7}$, $\mathsf{matrix}[\mathsf{face}{\oplus}1]\mathbin{\hat{=}}\mathsf{fb}_{8:15}$};
 
 % State blocks (sides)
 \node[state, left=22mm of step2] (mat) {反馈矩阵 $8\times8\times8$\\$\mathsf{matrix}[0..63]$};
@@ -87,6 +88,7 @@ HLFSR-64的总体数据流如图\ref{fig:arch}所示。系统在数据流层面�
 \draw[arr] (step3) -- (step4);
 \draw[arr] (step4) -- (step5);
 \draw[arr] (step5) -- (step6);
+\draw[arr] (step6) -- (step7);
 
 % Matrix → step2 (mask)
 \draw[arr] (mat.east) -- (step2.west) node[midway, above, font=\footnotesize] {mask (1B)};
@@ -104,9 +106,9 @@ HLFSR-64的总体数据流如图\ref{fig:arch}所示。系统在数据流层面�
 % Output from step5
 \draw[arr] (step5.east) -- ++(15mm,0) node[right, font=\footnotesize] {64-bit keystream};
 
-% Feedback: step6.west → left (align with mat.south) → straight up into mat.south
-\coordinate (fbCorner) at (step6.west -| mat.south);
-\draw[fbarr] (step6.west) -- (fbCorner) -- (mat.south);
+% Feedback: step7.west → left (align with mat.south) → straight up into mat.south
+\coordinate (fbCorner) at (step7.west -| mat.south);
+\draw[fbarr] (step7.west) -- (fbCorner) -- (mat.south);
 \node[font=\footnotesize, left] at ($(fbCorner)!0.5!(mat.south)$) {回填};
 \end{tikzpicture}
 \caption{HLFSR-64单步操作数据流：掩码经乘法映射为奇数乘子参与级联混合，16-bit反馈低8位回填当前面、高8位交叉注入相邻面}
@@ -220,7 +222,10 @@ $\mathrm{ROTL}_k(x)$ & 循环左移 & $x$ 循环左移 $k$ 位 \\
 \Comment{8b掩码$\to$64b奇数乘子，$\mathsf{mask}=0 \to \mathsf{mk}=1$（恒等）}
 \State $\mathsf{raw} \gets v_x \times \mathsf{mk} \times K_1$
 \Comment{$K_1 = \mathtt{0x9E3779B97F4A7C15}$}
-\State $\mathsf{output} \gets \mathsf{raw} \oplus \mathsf{curbit}^{64}$
+\State $\mathsf{tv} \gets \mathsf{lfsr}[\mathsf{face}] \times \mathsf{matrix}[\mathsf{addr}] \times ((\mathsf{mask} \land \mathtt{0x7F}) \mid 1) \times K_3$
+\For{$i \gets 0$ \textbf{to} $3$}
+    \State $\mathsf{out}[i] \gets \mathsf{raw} \times \mathrm{ROTL}_{33+17i}(\mathsf{tv}) \oplus \mathsf{lfsr}_{(\mathsf{face}+2i)\bmod 8} \oplus \mathsf{curbit}^{64}$
+\EndFor
 \State $\mathsf{fb} \gets (\mathsf{raw} \land \mathtt{0xFFFF}) \times K_2$
 \State $\mathsf{matrix}[\mathsf{addr}] \gets \mathsf{matrix}[\mathsf{addr}] \oplus (\mathsf{fb} \land \mathtt{0xFF})$
 \State $\mathsf{matrix}[\mathsf{addr}] \gets \mathrm{ROTL}_8(\mathsf{matrix}[\mathsf{addr}], \mathsf{col})$
@@ -479,9 +484,9 @@ Linear Complexity (M=500)  & 0.208 & 194/200 & 通过 \\
 \toprule
 \textbf{算法} & \textbf{块大小} & \textbf{吞吐量} & \textbf{实现来源} \\
 \midrule
-\textbf{HLFSR-64} & 8~MiB  & \textbf{5.89~GB/s} & 自研，纯 C++14，GCC 16.1.0 \texttt{-O3}，TV 256-bit 输出 \\
-\textbf{HLFSR-64} & 64~MiB & \textbf{1.87~GB/s} & 同上 \\
-\textbf{HLFSR-64} & 1~MiB  & \textbf{1.75~GB/s} & 同上，膝点在 2~MB（L2 边界） \\
+\textbf{HLFSR-64} & 8~MiB  & \textbf{6.25~GB/s} & 自研，纯C++14，GCC\,16.1.0 \texttt{-O3}，TV 256-bit \\
+\textbf{HLFSR-64} & 64~MiB & — & 同上（待测） \\
+\textbf{HLFSR-64} & 1~MiB  & — & 同上，膝点约 2~MB \\
 ChaCha20          & 8~MiB  & 550~MB/s   & OpenSSL 3.4 \texttt{EVP\_chacha20}，优化 C+SIMD \\
 ChaCha20 (参考)    & 8~MiB  & $\sim$200~MB/s & Bernstein 原始参考 C 实现 \cite{chacha} \\
 AES-256-GCM       & 8~MiB  & 1.76~GB/s  & OpenSSL 3.4，AES-NI 硬件加速 \\
@@ -581,7 +586,7 @@ $\natural$ 自研，GCC 16.1.0 \texttt{-O3}。$\S$ OpenSSL 3.4。$\ddag$ 3GPP �
 HLFSR-64的实验评估结果如下：
 
 \begin{enumerate}
-\item \textbf{软件性能}：5.89~GB/s纯C++14（无SIMD），为ChaCha20优化C实现的10.7倍
+\item \textbf{软件性能}：6.25~GB/s纯C++14（无SIMD），为ChaCha20优化C实现的10.7倍
 \item \textbf{统计检验}：NIST SP 800-22官方STS 200条序列全部9项有效检验通过
 \item \textbf{密码分析}：差分雪崩50\%，零差分率0.0\%，代数度$\ge 26$，$2^{30}$对线性深测偏差$3.45\times10^{-5}$（低于$3\sigma$，通过）
 \item \textbf{ASIC估算}：$\sim$23K门，面积效率为ChaCha20的2.2倍、与AES-128可比
