@@ -117,13 +117,14 @@ void hlfsr64::next256(u64 out[4]) {
 
     u64 raw = advance_lfsr(mask, m_idx);
 
-    // TV[i] = lfsr[face_i] × matrix[face_i][row], 7-bit (mask & 0x7F | 1) 调味
-    u8 seasoning = (mask & 0x7F) | 1;
+    // TV[i] = lfsr[face_i] × matrix[face_i][row_i]: fi/ri/seasoning 四路全错开
     for (int i = 0; i < 4; i++) {
-        u8 fi = (face + i) & 7;
-        u64 tv = m_lfsr[fi] * (u64)m_matrix[fi * 8 + row] * seasoning;
-        u64 t  = tv * 0x94D049BB133111EBULL;  // K₃
-        t = (t << 33) | (t >> 31);            // ROTL33
+        u8 fi = (face + i * 2) & 7;               // 2 步一跳, 4 lane 覆盖 8 面
+        u8 ri = (row + i) & 7;                      // 行也错开
+        u8 s  = ((mask >> i) & 1) | 1;             // 每 lane 用 mask 不同 bit
+        u64 tv = m_lfsr[fi] * (u64)m_matrix[fi * 8 + ri] * s;
+        u64 t  = tv * 0x94D049BB133111EBULL;       // K₃
+        t = (t << 33) | (t >> 31);                 // ROTL33
         out[i] = (raw * t) ^ (0ULL - curbit);
     }
 
