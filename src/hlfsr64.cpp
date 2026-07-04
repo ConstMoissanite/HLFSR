@@ -103,6 +103,40 @@ hlfsr64::u64 hlfsr64::next() {
     return output;
 }
 
+// 256-bit 输出: raw × ROTL33(K₃ × TV[i]), TV[i] = LFSR × matrix 交叉 + 7-bit 调味
+void hlfsr64::next256(u64 out[4]) {
+    u8  face = (u8)(m_idx & 7);
+    u8  row  = (u8)((m_idx >> 3) & 7);
+    u8  col  = (u8)((m_idx >> 6) & 7);
+    u8  ba   = face * 8 + row;
+    u8  curbyte = m_matrix[ba];
+    u8  curbit  = (curbyte >> col) & 1;
+
+    u8 mask = curbyte;
+    u8 p    = (u8)((m_idx >> 6) & 7);
+
+    u64 raw = advance_lfsr(mask, m_idx);
+
+    // TV[i] = lfsr[face_i] × matrix[face_i][row], 7-bit (mask & 0x7F | 1) 调味
+    u8 seasoning = (mask & 0x7F) | 1;
+    for (int i = 0; i < 4; i++) {
+        u8 fi = (face + i) & 7;
+        u64 tv = m_lfsr[fi] * (u64)m_matrix[fi * 8 + row] * seasoning;
+        u64 t  = tv * 0x94D049BB133111EBULL;  // K₃
+        t = (t << 33) | (t >> 31);            // ROTL33
+        out[i] = (raw * t) ^ (0ULL - curbit);
+    }
+
+    // 反馈: 16b 回填 (同 next)
+    u64 fb = (raw & 0xFFFF) * 0xBF58476D1CE4E5B9ULL;
+    m_matrix[ba] ^= (u8)(fb & 0xFF);
+    m_matrix[ba]  = rol8(m_matrix[ba], p);
+    u8 nb = (u8)(((face ^ 1) & 7) * 8 + row);
+    m_matrix[nb] ^= (u8)(fb >> 8);
+
+    m_idx = (m_idx + 1) & 0x1FF;
+}
+
 void hlfsr64::keystream(void* out, std::size_t bytes) {
     u8* p = static_cast<u8*>(out);
 

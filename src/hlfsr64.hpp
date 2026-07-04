@@ -27,6 +27,7 @@ class hlfsr64
     // idx_init: 0–511
     void init(const u8 key_material[64], u16 idx_init);
     u64 next();
+    void next256(u64 out[4]);
     void keystream(void *out, std::size_t bytes);
 
   private:
