@@ -8,16 +8,30 @@
 module hlfsr64 (
     input  wire        clk,
     input  wire        rst_n,
-    // 状态加载 (外部完成 init, 写入初始 lfsr/matrix/idx)
+    // 状态加载: flat vectors (Synthesis 兼容)
     input  wire        load,
-    input  wire [63:0] lfsr_in [0:7],
-    input  wire [7:0]  matrix_in [0:63],
-    input  wire [8:0]  idx_in,
-    // 运行
+    input  wire [511:0] lfsr_flat,    // 8 × 64-bit
+    input  wire [511:0] matrix_flat,  // 64 × 8-bit
+    input  wire [8:0]   idx_in,
+    // 运行: 256-bit TV output
     input  wire        next_req,
-    output wire [63:0] keystream,
+    output wire [63:0] keystream_0,
+    output wire [63:0] keystream_1,
+    output wire [63:0] keystream_2,
+    output wire [63:0] keystream_3,
     output wire        done
 );
+
+    // === 映射 flat → unpacked ===
+    wire [63:0] lfsr_in [0:7];
+    wire [7:0]  matrix_in [0:63];
+    genvar gi;
+    generate
+        for (gi = 0; gi < 8; gi = gi + 1)
+            assign lfsr_in[gi] = lfsr_flat[gi*64 +: 64];
+        for (gi = 0; gi < 64; gi = gi + 1)
+            assign matrix_in[gi] = matrix_flat[gi*8 +: 8];
+    endgenerate
 
     // ============================================================
     // 多项式
@@ -34,6 +48,7 @@ module hlfsr64 (
 
     localparam [63:0] K1 = 64'h9E3779B97F4A7C15;
     localparam [63:0] K2 = 64'hBF58476D1CE4E5B9;
+    localparam [63:0] K3 = 64'h94D049BB133111EB;
 
     // ============================================================
     // 寄存器
@@ -56,7 +71,6 @@ module hlfsr64 (
 
     // Galois 推进 + 全 XOR (组合逻辑, 8 路并行)
     wire [63:0] lfsr_new [0:7];
-    genvar gi;
     generate
         for (gi = 0; gi < 8; gi = gi + 1) begin : galois
             assign lfsr_new[gi] = (lfsr[gi] << 1) ^ (POLY[gi] & {64{lfsr[gi][63]}});
@@ -74,8 +88,28 @@ module hlfsr64 (
     wire [63:0] mk  = (mask_byte * K2) | 64'd1;
     wire [63:0] raw = (vx * mk) * K1;
 
-    // 输出
-    assign keystream = raw ^ {64{curbit}};
+    // TV lanes: 2 multipliers, 4 outputs (pair-share + ROTL derive)
+    wire [63:0] tv_k3 [0:1];
+    wire [63:0] tv_mix [0:3];
+    genvar ti;
+    generate
+        for (ti = 0; ti < 2; ti = ti + 1) begin : tv_core
+            wire [2:0] fi = (face + ti * 2) & 3'd7;
+            wire [2:0] ri = (row + ti) & 3'd7;
+            wire [7:0] si = ((mask_byte >> ti) & 1'b1) | 1'b1;
+            wire [63:0] tv = lfsr[fi] * {56'd0, matrix[{fi, ri}]} * {56'd0, si};
+            assign tv_k3[ti] = tv * K3;
+            assign tv_mix[ti] = (tv_k3[ti] << 33) | (tv_k3[ti] >> 31);
+        end
+        // derive lanes 2,3 via ROTL of lanes 0,1
+        assign tv_mix[2] = (tv_mix[0] << 17) | (tv_mix[0] >> 47);
+        assign tv_mix[3] = (tv_mix[1] << 17) | (tv_mix[1] >> 47);
+    endgenerate
+
+    assign keystream_0 = (raw * tv_mix[0]) ^ {64{curbit}};
+    assign keystream_1 = (raw * tv_mix[1]) ^ {64{curbit}};
+    assign keystream_2 = (raw * tv_mix[2]) ^ {64{curbit}};
+    assign keystream_3 = (raw * tv_mix[3]) ^ {64{curbit}};
     assign done = busy;
 
     // 反馈
