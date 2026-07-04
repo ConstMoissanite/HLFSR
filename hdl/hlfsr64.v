@@ -12,7 +12,7 @@ module hlfsr64 (
     input  wire        load,
     input  wire [511:0] lfsr_flat,    // 8 × 64-bit
     input  wire [511:0] matrix_flat,  // 64 × 8-bit
-    input  wire [8:0]   idx_in,
+    input  wire [15:0]  idx_in,
     // 运行: 256-bit TV output
     input  wire        next_req,
     output wire [63:0] keystream_0,
@@ -55,7 +55,7 @@ module hlfsr64 (
     // ============================================================
     reg [63:0] lfsr [0:7];
     reg [7:0]  matrix [0:63];
-    reg [8:0]  idx;
+    reg [15:0] idx;
     reg        busy;
 
     // ============================================================
@@ -96,7 +96,7 @@ module hlfsr64 (
         for (ti = 0; ti < 2; ti = ti + 1) begin : tv_core
             wire [2:0] fi = (face + ti * 2) & 3'd7;
             wire [2:0] ri = (row + ti) & 3'd7;
-            wire [7:0] si = ((mask_byte >> ti) & 1'b1) | 1'b1;
+            wire [7:0] si = (mask_byte ^ idx[15:9]) | 8'd1;
             wire [63:0] tv = lfsr[fi] * {56'd0, matrix[{fi, ri}]} * {56'd0, si};
             assign tv_k3[ti] = tv * K3;
             assign tv_mix[ti] = (tv_k3[ti] << 33) | (tv_k3[ti] >> 31);
@@ -113,7 +113,7 @@ module hlfsr64 (
     assign done = busy;
 
     // 反馈
-    wire [63:0] fb     = raw[15:0] * K2;
+    wire [63:0] fb     = raw[63:48] * K2;
     wire [7:0]  fb_lo  = fb[7:0];
     wire [7:0]  fb_hi  = fb[15:8];
     wire [2:0]  nb_face = face ^ 3'd1;
@@ -135,7 +135,7 @@ module hlfsr64 (
         if (!rst_n) begin
             for (i = 0; i < 8; i = i + 1) lfsr[i] <= 64'd0;
             for (i = 0; i < 64; i = i + 1) matrix[i] <= 8'd0;
-            idx  <= 9'd0;
+            idx  <= 16'd0;
             busy <= 1'b0;
         end else begin
             if (load) begin
@@ -147,7 +147,7 @@ module hlfsr64 (
                 for (i = 0; i < 8; i = i + 1) lfsr[i] <= lfsr_new[i];
                 matrix[addr]    <= matrix_new;
                 matrix[nb_addr] <= matrix_nb;
-                idx  <= (idx + 1) & 9'h1FF;
+                idx  <= {fb[6:0], ((idx[8:0] + 1) & 9'h1FF)};
                 busy <= 1'b1;
             end else begin
                 busy <= 1'b0;
