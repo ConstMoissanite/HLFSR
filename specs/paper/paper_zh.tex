@@ -22,7 +22,7 @@
 \maketitle
 
 \begin{abstract}
-HLFSR-64是一种面向软件性能优化的流密码，采用$8\times8\times8$位反馈矩阵、8条64位Galois LFSR和9位步计数器作为状态。每步推进全部LFSR后全异或得$v_x$，经$\mathrm{ROTL}_{33}$自旋转与掩码派生的奇数乘子级联相乘产生$\mathsf{raw}$。256位输出通过单次额外乘法派生：LFSR与矩阵状态交叉后乘$K_3$，以不同旋转量生成4路乘子分别与$\mathsf{raw}$相乘，各路异或不同LFSR值消除派生相关性。反馈为$\mathsf{raw}$低16位乘$K_2$后低8位回填当前面、高8位注入相邻面。初始化采用三乘积+MDS over $\mathrm{GF}(2^8)$+键相关搅拌+64步预热。纯C++14实现（GCC -O3，无SIMD）在i9-14900HX上达到5.84~GB/s。NIST SP 800-22全部通过，差分雪崩50\%、零差率0.0\%、代数度$\ge 26$，$2^{30}$对线性深测偏差$3.45\times10^{-5}$（$<3\sigma$）。
+HLFSR-64是一种面向软件性能优化的流密码，采用$8\times8\times8$位反馈矩阵、8条64位Galois LFSR和16位步计数器（低9位计数+高7位存反馈调味态）作为状态。每步推进全部LFSR后全异或得$v_x$，经$\mathrm{ROTL}_{33}$自旋转与掩码派生的奇数乘子级联相乘产生$\mathsf{raw}$。256位输出通过单次额外乘法派生：LFSR与矩阵状态交叉，经动态seasoning调味后乘$K_3$，以不同旋转量生成4路乘子分别与$\mathsf{raw}$相乘，各路异或不同LFSR值消除派生相关性。反馈为$\mathsf{raw}$高16位（$[63:48]$，进位累积度最大）乘$K_2$后低8位回填当前面、高8位注入相邻面，低7位写入idx高半部分供下一步动态调味。初始化采用三乘积+MDS over $\mathrm{GF}(2^8)$+键相关搅拌+64步预热。纯C++14实现（GCC -O3，无SIMD）在i9-14900HX上达到5.84~GB/s。NIST SP 800-22全部通过，差分雪崩50\%、零差率0.0\%、代数度$\ge 26$，$2^{30}$对线性深测偏差$3.45\times10^{-5}$（$<3\sigma$）。
 
 \textbf{关键词}：流密码；线性反馈移位寄存器；乘性混合；TV扩展；MDS矩阵
 \end{abstract}
@@ -57,8 +57,8 @@ LFSR 因其硬件高效和良好代数结构，自 20 世纪 60 年代以来一�
 
 \subsection{总体架构}
 
-HLFSR-64的总体数据流如图\ref{fig:arch}所示。系统在数据流层面维护1033位内部状态，由三部分组成：
-512位$8\times8\times8$反馈矩阵、512位（8条64位）Galois LFSR、以及9位游标idx。
+HLFSR-64的总体数据流如图\ref{fig:arch}所示。系统在数据流层面维护1040位内部状态，由三部分组成：
+512位$8\times8\times8$反馈矩阵、512位（8条64位）Galois LFSR、以及16位游标idx（低9位计数+高7位存反馈调味态）。
 
 \begin{figure}[H]
 \centering
@@ -125,7 +125,7 @@ HLFSR-64的总体数据流如图\ref{fig:arch}所示。系统在数据流层面�
 \midrule
 $\mathsf{matrix}$ & $8\times8\times8$ 位 (512 bit) & 三维反馈状态矩阵，面索引为 $\mathrm{face}$，面内 64 比特 \\
 $\mathsf{lfsr}$   & $8\times64$ 位 (512 bit)    & 8 条独立 Galois 型 64 位 LFSR，各配本原多项式 \\
-$\mathrm{idx}$    & 9 bit                       & 全局步计数器，每步自增，周期 512 \\
+$\mathrm{idx}$    & 16 bit & 低9位计数(0--511)，高7位存反馈调节态 \\
 $\mathrm{POLY}$   & $8\times64$ 位 (512 bit)    & 8 个 64 次本原多项式，非零系数 13--15 项 \\
 \bottomrule
 \end{tabular}
@@ -139,7 +139,7 @@ $\mathrm{POLY}$   & $8\times64$ 位 (512 bit)    & 8 个 64 次本原多项式�
 \toprule
 \textbf{符号} & \textbf{位宽} & \textbf{含义} \\
 \midrule
-$\mathrm{idx}$   & 9 bit  & 全局步计数 (0--511)，控制坐标解码 \\
+$\mathrm{idx}$   & 16 bit & 低9位步计数(0--511)，高7位存反馈调味态 \\
 $\mathrm{face}$  & 3 bit  & 面号，$\mathrm{idx} \bmod 8$ \\
 $\mathrm{row}$   & 3 bit  & 行号，$(\mathrm{idx} \gg 3) \bmod 8$ \\
 $\mathrm{col}$   & 3 bit  & 列号，$(\mathrm{idx} \gg 6) \bmod 8$ \\
@@ -215,23 +215,27 @@ $\mathrm{ROTL}_k(x)$ & 循环左移 & $x$ 循环左移 $k$ 位 \\
 \State $\mathsf{curbit} \gets (\mathsf{mask} \gg \mathsf{col}) \land 1$
 \State $v_x \gets 0$
 \For{$i \gets 0$ \textbf{to} $7$}
-    \State $\mathsf{lfsr}[i] \gets (\mathsf{lfsr}[i] \ll 1) \oplus (\mathrm{POLY}[i] \land (\mathsf{lfsr}[i] \gg 63)^{64})$
+    \State $\mathsf{lfsr}[i] \gets (\mathsf{lfsr}[i] \ll 1) \oplus (\mathrm{POLY}[i] \cdot (\mathsf{lfsr}[i] \gg 63))$
     \State $v_x \gets v_x \oplus \mathsf{lfsr}[i]$
 \EndFor
 \State $v_x \gets v_x \oplus ((v_x \ll 33) \oplus (v_x \gg 31))$
 \State $\mathsf{mk} \gets (\mathsf{mask} \times K_2) \mid 1$
-\Comment{8b掩码$\to$64b奇数乘子，$\mathsf{mask}=0 \to \mathsf{mk}=1$（恒等）}
+\Comment{$\mathsf{mask}=0 \to \mathsf{mk}=1$（恒等）}
 \State $\mathsf{raw} \gets v_x \times \mathsf{mk} \times K_1$
 \Comment{$K_1 = \mathtt{0x9E3779B97F4A7C15}$}
-\State $\mathsf{tv} \gets \mathsf{lfsr}[\mathsf{face}] \times \mathsf{matrix}[\mathsf{addr}] \times ((\mathsf{mask} \land \mathtt{0x7F}) \mid 1) \times K_3$
+\State $\mathsf{season} \gets (\mathsf{mask} \oplus (\mathsf{idx} \gg 9)) \mid 1$
+\State $\mathsf{tv} \gets \mathsf{lfsr}[\mathsf{face}] \times \mathsf{matrix}[\mathsf{addr}] \times \mathsf{season} \times K_3$
 \For{$i \gets 0$ \textbf{to} $3$}
-    \State $\mathsf{out}[i] \gets \mathsf{raw} \times \mathrm{ROTL}_{33+17i}(\mathsf{tv}) \oplus \mathsf{lfsr}_{(\mathsf{face}+2i)\bmod 8} \oplus \mathsf{curbit}^{64}$
+    \State $\mathsf{t}_i \gets \mathrm{ROTL}_{33+17i}(\mathsf{tv})$
+\State $\mathsf{tmp} \gets \mathsf{lfsr}_{(\mathsf{face}+2i)\bmod 8} \oplus \mathsf{curbit}^{64}$
+\State $\mathsf{out}[i] \gets \mathsf{raw} \times \mathsf{t}_i \oplus \mathsf{tmp}$
 \EndFor
-\State $\mathsf{fb} \gets (\mathsf{raw} \land \mathtt{0xFFFF}) \times K_2$
+\State $\mathsf{fb} \gets ((\mathsf{raw} \gg 48) \land \mathtt{0xFFFF}) \times K_2$
 \State $\mathsf{matrix}[\mathsf{addr}] \gets \mathsf{matrix}[\mathsf{addr}] \oplus (\mathsf{fb} \land \mathtt{0xFF})$
 \State $\mathsf{matrix}[\mathsf{addr}] \gets \mathrm{ROTL}_8(\mathsf{matrix}[\mathsf{addr}], \mathsf{col})$
-\State $\mathsf{matrix}[(\mathsf{face} \oplus 1) \times 8 + \mathsf{row}] \gets \mathsf{matrix}[(\mathsf{face} \oplus 1) \times 8 + \mathsf{row}] \oplus ((\mathsf{fb} \gg 8) \land \mathtt{0xFF})$
-\Comment{$K_2 = \mathtt{0xBF58476D1CE4E5B9}$；16b反馈：低8位回填当前面，高8位交叉注入相邻面}
+\State $\mathsf{nb} \gets (\mathsf{face} \oplus 1) \times 8 + \mathsf{row}$
+\State $\mathsf{matrix}[\mathsf{nb}] \gets \mathsf{matrix}[\mathsf{nb}] \oplus ((\mathsf{fb} \gg 8) \land \mathtt{0xFF})$
+\Comment{反馈：raw高16位，低8位回填+ROL8，高8位注邻面}
 \State $\mathsf{idx} \gets (\mathsf{idx} + 1) \land \mathtt{0x1FF}$
 \State \Return $\mathsf{out}[0], \mathsf{out}[1], \mathsf{out}[2], \mathsf{out}[3]$
 \end{algorithmic}
@@ -258,7 +262,7 @@ ml[i] &= w[(i+4)\bmod 8] \times \mathrm{ROTL}_{23}(w[(i+5)\bmod 8]) \times \math
 
 \textbf{阶段二：8$\times$8 MDS矩阵混合。}在$\mathrm{GF}(2^8)$上对$mm$和$ml$施加AES MixColumns的8$\times$8拓展——循环MDS矩阵，首行$[2,3,1,1,1,1,1,1]$。将阶段一的局部依赖扩展为全依赖：每个输出词由仅涉及3/8个输入词变为受全部8个输入词影响（分支数9）。MDS操作按字节列进行，共16次列变换（$mm$ 8列 + $ml$ 8列）。
 
-\textbf{阶段三：$\mathsf{idx}$高7位键相关搅拌。}$\mathsf{idx\_init}$高7位（0--127）与密钥材料相乘（$\mathsf{extra}\times\mathsf{km}[i]\land\mathtt{0x7F}$）异或到全64字节矩阵。相同$\mathsf{km}$+不同高7位$\to$128种初始状态，且不同密钥的搅拌模式无固定仿射关系——消除了固定搅拌被深测检出的偏差。
+\textbf{阶段三：$\mathsf{idx}$高7位键相关搅拌。}$\mathsf{idx\_init}$高7位（0--127）与密钥材料相乘（$\mathsf{extra}\times\mathsf{km}[i]\land\mathtt{0x7F}$）异或到全64字节矩阵。相同$\mathsf{km}$+不同高7位$\to$128种初始状态，且不同密钥的搅拌模式无固定仿射关系——消除了固定搅拌被深测检出的偏差。搅拌键随后参与到调节之中，状态被刷新，输入状态被自然掩蔽。
 
 \textbf{阶段四：64步密码预热。}运行64步$\mathrm{next}()$丢弃输出，矩阵完整遍历1轮、LFSR各移位64次。三乘积+MDS已提供充分扩散，64步仅作精细调整并完全掩蔽初始状态。
 
@@ -331,9 +335,9 @@ $\mathsf{mask}=0$ 时 $\mathsf{mk}=1$（恒等乘子），$\mathsf{raw} = v_x \t
 \item $K_3 = \mathtt{0x94D049BB133111EB}$（MurmurHash3）——TV派生，单次乘法扩展至256位
 \end{itemize}
 
-\textbf{反馈路径}：取 $\mathsf{raw}$ 低 16 位乘 $K_2$，低 8 位异或回当前矩阵地址并做 $\mathrm{ROTL}_8$ 行内扩散，高 8 位交叉注入相邻面同行。面隔离天然保证批处理内无 RAW 冲突，512 步周期内每面受双重注入。实测无 $K_2$ 回填时代数度 $<7$，保留则 $\ge 26$；$2^{30}$ 对线性深测偏差 $3.45\times10^{-5} < 3\sigma$。
+\textbf{反馈路径}：取 $\mathsf{raw}$ 高 16 位（$[63:48]$，进位累积度最大）乘 $K_2$，低 8 位异或回当前矩阵地址并做 $\mathrm{ROTL}_8$ 行内扩散，高 8 位交叉注入相邻面同行；低 7 位同时写入 $\mathsf{idx}[15:9]$ 供下一步 TV seasoning 动态调味。面隔离天然保证批处理内无 RAW 冲突，512 步周期内每面受双重注入。实测无 $K_2$ 回填时代数度 $<7$，保留则 $\ge 26$；$2^{30}$ 对线性深测偏差 $3.45\times10^{-5} < 3\sigma$。
 
-\textbf{TV派生}：将 $\mathsf{lfsr}[\mathsf{face}]$ 与 $\mathsf{matrix}[\mathsf{addr}]$ 的乘积经 $K_3$ 乘法和 $\mathrm{ROTL}_{33}$ 产生 $\mathsf{tv}$，以4种旋转量（$+0, +17, +34, +51$）派生4路乘子分别与同一 $\mathsf{raw}$ 相乘，各路异或不同 LFSR 值消除旋转派生相关性。因 $\mathsf{raw}$ 和 $\mathsf{tv}$ 各仅需一次主乘法，TV 层比基础 64-bit 路径仅多1次 $K_3$ 乘法，输出扩展至256位，吞吐从2.03 GB/s提升至5.84 GB/s。
+\textbf{TV派生}：取 $\mathsf{season} = (\mathsf{mask} \oplus (\mathsf{idx} \gg 9)) \mid 1$（256种动态变体），将 $\mathsf{lfsr}[\mathsf{face}]$、$\mathsf{matrix}[\mathsf{addr}]$ 与 $\mathsf{season}$ 的乘积经 $K_3$ 乘法和 $\mathrm{ROTL}_{33}$ 产生 $\mathsf{tv}$，以4种旋转量（$+0, +17, +34, +51$）派生4路乘子分别与同一 $\mathsf{raw}$ 相乘，各路异或不同 LFSR 值消除旋转派生相关性。$\mathsf{idx}$ 高7位每步由反馈低字节更新，使 $\mathsf{season}$ 每步独立变化（旧版仅 $( \mathsf{mask} \land \mathtt{0x7F}) \mid 1$，128种静态值）。因 $\mathsf{raw}$ 和 $\mathsf{tv}$ 各仅需一次主乘法，TV 层比基础 64-bit 路径仅多1次 $K_3$ 乘法，输出扩展至256位，吞吐从2.03 GB/s提升至5.84 GB/s。
 
 \subsection{面隔离与批处理}
 
@@ -377,14 +381,16 @@ $\mathrm{face} = \mathrm{idx} \mathbin{\&} 7$的低3位编码将连续8步映射
 5--8  & 8--25   & 93--100\% & 度 $\ge 8$ \\
 9--11 & 4--6    & 75--83\%  & 度 $\ge 9$--11 \\
 12--20 & 10     & 90--100\% & 度 $\ge 20$ \\
-\textbf{21--26} & \textbf{10} & \textbf{100\%} & \textbf{度 $\ge 26$} \\
+21    & 50     & 94\%      & 度 $\ge 21$ \\
+\textbf{22--25} & \textbf{50} & \textbf{100\%} & \textbf{度 $\ge 25$} \\
+26    & 50     & 94\%      & 度 $\ge 26$ \\
 \bottomrule
 \end{tabular}
 \caption{代数度检验结果}
 \label{tab:degree}
 \end{table}
 
-\textbf{结论}：$d=21$--26 各 10 次试验全部 100\% 非零，排除代数度 $<26$。掩码乘法将 8 位掩码映射为 64 位奇数乘子，每步产生不同的 GF(2) 上度 $\approx 32$ 的置换函数。乘法器 carry-chain 的理论度上界 $\approx 32$，实测 $\ge 26$，剩余 6 度的分辨受限于 $d>26$ 时 $2^d$ 超过 $6.7\times10^7$ 元素/次试验，检验本身趋于饱和。
+\textbf{结论}：$d=21$--26 各 50 次试验，$d=21$ 94\%，$d=22$--25 100\%，$d=26$ 94\%，排除代数度 $<26$。单次探针 $d=27$--29 非零，提示实际度可能接近乘法器理论上界 $\approx 32$。因 $d>26$ 时 $2^d$ 爆炸（$>6.7\times10^7$ 元素/次），大样本统计检验已趋于饱和，不做确定性声明。
 
 \subsubsection{线性偏差检验}
 
@@ -419,8 +425,8 @@ $\mathrm{face} = \mathrm{idx} \mathbin{\&} 7$的低3位编码将连续8步映射
 \textbf{攻击类型} & \textbf{防御机制} & \textbf{复杂度估计} \\
 \midrule
 相关攻击 \cite{golic}  & 掩码乘法使 LFSR 输出不可归因；乘性混合消除字内自相关 & $>2^{200}$ \\
-代数攻击 \cite{courtois} & 1033状态位 $\times$ 度$\ge 26$ $\times$ 掩码乘子变化 & $>2^{200}$ (XL/XSL) \\
-TMDTO \cite{babbage}    & 状态空间$2^{1033}$ & $>2^{516}$ 预计算 \\
+代数攻击 \cite{courtois} & 1040状态位 $\times$ 度$\ge 26$ $\times$ 掩码乘子变化 & $>2^{200}$ (XL/XSL) \\
+TMDTO \cite{babbage}    & 状态空间$2^{1040}$ & $>2^{520}$ 预计算 \\
 滑动攻击   & 无固定轮函数；mask/curbit由动态矩阵决定 & 不适用 \\
 差分攻击   & 乘法+矩阵反馈+$\mathrm{ROTL}_8$位重排 & 2轮后差分消除 \\
 区分攻击   & $2^{30}$对偏差$3.45\times10^{-5}$，需约6.7GB数据，且无助于密钥恢复 & 无实际威胁 \\
@@ -581,7 +587,7 @@ TV 模式下无明显缓存膝点——工作集（8条LFSR + 当前矩阵字节
 \textbf{维度} & \textbf{HLFSR-64} & \textbf{ChaCha20} & \textbf{AES-256-CTR} & \textbf{SNOW 3G/ZUC} \\
 \midrule
 非线性源       & 1条imul       & 20轮ARX      & SubBytes+MixCol & FSM+S-Box \\
-状态 (bit)     & 1033          & 512          & 256             & 576 \\
+状态 (bit)     & 1040          & 512          & 256             & 576 \\
 纯C(++)吞吐 (GB/s) & \textbf{5.84}$^\natural$ & $\sim$1.60$^\S$ & $\sim$0.2$^{*\S}$ & $\sim$0.35$^\ddag$ \\
 ASIC门数 (K)   & 48            & 18           & 25              & 15--20 \\
 面积效率$^\dagger$ & 0.83 & 1.3         & 0.40$^*$        & $\sim$0.3 \\
@@ -619,7 +625,7 @@ HLFSR-64的实验评估结果如下：
 
 \textbf{设计空间验证}：在最终设计收敛过程中，探索了以下替代方案，均被$2^{30}$对线性深测或高阶差分检验检出劣化：(a) POLY[2]权重从13升至15——多组w=15候选偏差均高于原版；(b) 面交叉反馈$\mathsf{face}\oplus3$——引入4面跳跃模式；(c) 反馈切片偏移至$\mathsf{raw}[16:31]$；(d) $\mathsf{mk}=\mathsf{mask}\cdot K_2+K_3$——等差乘子群结构；(e) $\mathsf{mk}=\mathsf{mask}\cdot K_2+\mathsf{lfsr}[\mathsf{face}]$——vx内自相关；(f) $\mathsf{vx}+=\mathrm{ROTL}_{33}(\mathsf{vx})$——进位链引入新结构。11种替代方案无一优于当前最简形式，构成对当前设计的有力反证。
 
-\textbf{已知局限}：(1) 缺乏形式化安全归约——安全性基于设计复杂性而非已知计算困难问题；(2) 未经第三方独立密码分析；(3) 代数度实测$\ge 26$，乘法器理论峰值$\sim 32$，$d>24$ 时 $2^d$ 爆炸限制统计分辨力；(4) 双64$\times$64乘法器占ASIC面积$\sim$75\%，面积效率低于ARX型流密码（0.83 vs ChaCha20 1.3 Gbps/Kgate），资源受限场景下需架构优化。
+\textbf{已知局限}：(1) 缺乏形式化安全归约——安全性基于设计复杂性而非已知计算困难问题；(2) 未经第三方独立密码分析；(3) 代数度实测$\ge 26$（50次试验确证），单次探针$\ge 29$，乘法器理论峰值$\sim 32$，$d>26$ 时 $2^d$ 爆炸限制统计分辨力；(4) 双64$\times$64乘法器占ASIC面积$\sim$75\%，面积效率低于ARX型流密码（0.83 vs ChaCha20 1.3 Gbps/Kgate），资源受限场景下需架构优化。
 
 \textbf{后续方向}：(1) 公开征集独立密码分析；(2) 形式化安全归约（如到GF($2^{64}$)上乘法器单向性的归约）；(3) 迭代乘累加替代全乘法器的轻量ASIC架构；(4) 参数族扩展至HLFSR-128（128位输出，1024位矩阵，16条LFSR）；(5) FPGA/ASIC原型验证。
 

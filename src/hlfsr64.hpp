@@ -35,7 +35,7 @@ class hlfsr64
     u64 advance_lfsr(u8 mask, u16 step_idx);
 
     u8 m_matrix[64];
-    u16 m_idx;
+    u16 m_idx;       // lo 9b=counter(0-511), hi 7b=feedback seasoning
     u64 m_lfsr[8];
 
     static const u64 POLY[8];
