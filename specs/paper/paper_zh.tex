@@ -321,16 +321,19 @@ $\mathsf{mask}=0$ 时 $\mathsf{mk}=1$（恒等乘子），$\mathsf{raw} = v_x \t
 \mathrm{matrix} \rightarrow \mathsf{mask} \rightarrow \mathsf{mk} \rightarrow v_x \times \mathsf{mk} \times K_1 \rightarrow \mathrm{feedback} \times K_2 \rightarrow \mathrm{matrix}
 \end{equation}
 
-\subsection{双乘分离路径}
+\subsection{三乘分离与TV扩展}
 
-输出端的$K_1$乘法确保端到端的非线性质量保证（NIST/Golomb/差分/线性分析全部基于此路径），回填端的$K_2$乘法在状态反馈回路中累积代数深度。双常数均具有公开数学来源：
+三个独立乘法常数各司其职：
 
 \begin{itemize}
-\item $K_1 = \lfloor 2^{64}/\varphi \rfloor = \mathtt{0x9E3779B97F4A7C15}$（黄金比例）
-\item $K_2 = \mathtt{0xBF58476D1CE4E5B9}$（SplitMix64常数 \cite{splitmix}）
+\item $K_1 = \lfloor 2^{64}/\varphi \rfloor = \mathtt{0x9E3779B97F4A7C15}$（黄金比例）——输出端主混合
+\item $K_2 = \mathtt{0xBF58476D1CE4E5B9}$（SplitMix64常数 \cite{splitmix}）——回填端累积代数深度
+\item $K_3 = \mathtt{0x94D049BB133111EB}$（MurmurHash3）——TV派生，单次乘法扩展至256位
 \end{itemize}
 
-反馈路径取乘法结果低 16 位乘以 $K_2$：低 8 位异或回当前矩阵地址并做 $\mathrm{ROTL}_8$ 行内扩散，高 8 位交叉注入相邻面同行（$\mathsf{matrix}[(\mathsf{face}\oplus 1) \times 8 + \mathsf{row}]$）。面隔离天然保证批处理内无 RAW 冲突——$\mathsf{face}\oplus 1 \neq \mathsf{face}$ 恒成立，512 步周期内每面被自身反馈和邻面交叉反馈双重注入。实测表明：无 $K_2$ 回填时代数度 $<7$，保留则 $\ge 26$；$2^{30}$ 对线性深测通过检验（偏差 $3.45\times10^{-5} < 3\sigma$）。受限于测试环境算力，当前可观测的代数度下界为26。
+\textbf{反馈路径}：取 $\mathsf{raw}$ 低 16 位乘 $K_2$，低 8 位异或回当前矩阵地址并做 $\mathrm{ROTL}_8$ 行内扩散，高 8 位交叉注入相邻面同行。面隔离天然保证批处理内无 RAW 冲突，512 步周期内每面受双重注入。实测无 $K_2$ 回填时代数度 $<7$，保留则 $\ge 26$；$2^{30}$ 对线性深测偏差 $3.45\times10^{-5} < 3\sigma$。
+
+\textbf{TV派生}：将 $\mathsf{lfsr}[\mathsf{face}]$ 与 $\mathsf{matrix}[\mathsf{addr}]$ 的乘积经 $K_3$ 乘法和 $\mathrm{ROTL}_{33}$ 产生 $\mathsf{tv}$，以4种旋转量（$+0, +17, +34, +51$）派生4路乘子分别与同一 $\mathsf{raw}$ 相乘，各路异或不同 LFSR 值消除旋转派生相关性。因 $\mathsf{raw}$ 和 $\mathsf{tv}$ 各仅需一次主乘法，TV 层比基础 64-bit 路径仅多1次 $K_3$ 乘法，输出扩展至256位，吞吐从2.03 GB/s提升至6.25 GB/s。
 
 \subsection{面隔离与批处理}
 
@@ -498,7 +501,22 @@ SM4-CBC           & 8~MiB  & 77~MB/s    & OpenSSL 3.4，纯软件查表实现 \\
 \label{tab:swperf}
 \end{table}
 
-测试平台：Intel Core i9-14900HX (P-core 5.8\,GHz, 36\,MB L3), Windows 11 x64, GCC 16.1.0, \texttt{-O3 -march=native}，单线程，后台负载已控制一致。HLFSR-64 为自研实现；ChaCha20、AES-256-GCM、SM4-CBC 均取自 OpenSSL 3.4 内置实现；ChaCha20 (参考) 取自 Bernstein 原始可移植 C 代码 \cite{chacha}。受限于平台，仅支持AVX2而不支持对于Chacha20提升作用巨大的AVX512,因此此处Chacha20数据主要用于同等环境参考，不代表最高性能。
+测试平台：Intel Core i9-14900HX (P-core 5.8\,GHz, 36\,MB L3), Windows 11 x64, GCC 16.1.0, \texttt{-O3 -march=native}，单线程，后台负载已控制一致。HLFSR-64 为自研实现；ChaCha20、AES-256-GCM、SM4-CBC 均取自 OpenSSL 3.4 内置实现；ChaCha20 (参考) 取自 Bernstein 原始可移植 C 代码 \cite{chacha}。受限于平台仅支持AVX2，Chacha20数据为同等环境参考值。多块大小对照（\texttt{openssl speed} 格式，1000s of bytes/sec）：
+
+\begin{table}[H]
+\centering
+\footnotesize
+\begin{tabular}{@{}lrrrrrr@{}}
+\toprule
+& 16 B & 64 B & 256 B & 1024 B & 8192 B & 16384 B \\
+\midrule
+\textbf{HLFSR-64} & \textbf{3,489k} & \textbf{6,901k} & \textbf{5,358k} & \textbf{6,375k} & \textbf{6,325k} & \textbf{5,994k} \\
+ChaCha20 AVX2      & 640k & 972k & 1,915k & 1,981k & 2,022k & 1,987k \\
+\bottomrule
+\end{tabular}
+\caption{全块大小吞吐对比（同等AVX2平台）}
+\label{tab:speed_all}
+\end{table}
 
 \subsection{缓存膝点分析}
 
