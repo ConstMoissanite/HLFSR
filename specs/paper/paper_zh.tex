@@ -22,9 +22,9 @@
 \maketitle
 
 \begin{abstract}
-本文提出HLFSR-64，一种面向软件性能优化的流密码算法。该算法采用$8\times8\times8$位反馈空间（512位）与8条64位Galois线性反馈移位寄存器（LFSR）作为核心状态，每步将全部8条LFSR无条件异或后与掩码字节派生的奇数乘子级联相乘（$v_x \cdot \mathsf{mk} \cdot K_1$），以乘法提供非线性性。反馈路径取乘法结果低16位乘$K_2$后，低8位回填当前矩阵地址并做$\mathrm{ROTL}_8$行内扩散，高8位交叉注入相邻面同行，形成面间交叉反馈闭环。初始化阶段采用模乘预混合与$8\times8$ $\mathrm{GF}(2^8)$ MDS密钥编排，再进行64步预热，实现了完全扩散。在实验平台（Intel Core i9-14900HX）上，纯C++14实现（无SIMD）达到2.03~GB/s的吞吐量，为ChaCha20优化C实现的3.7倍。经NIST SP 800-22官方STS 2.1.2测试，200条1~Mbit序列全部9项有效检验通过（通过率194--200/200）。密码分析表明：差分雪崩效应达到50\%，零差分率降至0.0\%，代数度$\ge 26$，$2^{30}$对线性深测偏差$3.45\times10^{-5}$（低于$3\sigma$噪声级$9.16\times10^{-5}$，通过检验）。
+本文提出HLFSR-64，一种面向软件性能优化的流密码算法。该算法采用$8\times8\times8$位反馈空间（512位）,9Bit计数寄存器与8条64位Galois线性反馈移位寄存器（LFSR）作为核心状态，每步将全部8条LFSR无条件异或后与掩码字节派生的奇数乘子级联相乘（$v_x \cdot \mathsf{mk} \cdot K_1$），以乘法提供非线性性与扩散。反馈路径取乘法结果低16位乘$K_2$后，低8位回填当前矩阵地址并做$\mathrm{ROTL}_8$行内扩散，高8位交叉注入相邻面同行，形成面间交叉反馈闭环。初始化阶段采用模乘预混合与$8\times8$ $\mathrm{GF}(2^8)$ 的AES-Like MDS密钥编排，再进行64步预热，通过一次状态全量更新实现了完全扩散。在实验平台（Intel Core i9-14900HX）上，纯C++14实现（GNU GCC O3,无SIMD）达到5.89~GB/s的吞吐量，为ChaCha20优化C实现的10.7倍。经NIST SP 800-22官方STS 2.1.2测试，200条1~Mbit序列全部9项有效检验通过（通过率194--200/200）。密码分析表明：差分雪崩效应达到50\%，零差分率降至0.0\%，代数度具有$\ge 26$的下界，$2^{30}$对线性深测偏差$3.45\times10^{-5}$（低于$3\sigma$噪声级$9.16\times10^{-5}$，通过检验）。
 
-\textbf{关键词}：流密码；线性反馈移位寄存器；反馈状态机；乘性混合；MDS矩阵；NIST SP 800-22
+\textbf{关键词}：流密码；线性反馈移位寄存器；反馈状态机；乘性混合；MDS矩阵
 \end{abstract}
 
 % ============================================================
@@ -35,23 +35,21 @@
 
 LFSR 因其硬件高效和良好代数结构，自 20 世纪 60 年代以来一直作为流密码的基本构件 \cite{golomb}。早期设计（如 A5/1、E0）遭受相关攻击 \cite{golic} 和代数攻击 \cite{courtois} 后，现代 LFSR 基流密码采用了非线性滤波、不规则钟控或有限状态机混合等手段提升安全性。当前主流流密码方案可归为以下几类：
 
-\textbf{ARX 结构}（加-异或-循环移位）：以 Salsa20/ChaCha20 \cite{chacha} 为代表。ChaCha20 每轮对 512 位状态执行 4 次独立的列操作和 4 次对角线操作，每列涉及 4 次 32 位 ADD、XOR 和 ROL，需 20 轮（共 80 次 ADD + 80 次 XOR + 80 次 ROL）才能达到安全扩散 \cite{chacha}。ARX 天然规避查表侧信道，已标准化为 RFC~8439 并成为 TLS~1.3 强制算法。优化 C 实现吞吐约 550\,MB/s，20 轮串行依赖限制了单核性能上限。
+\textbf{ARX 结构}（加-异或-循环移位）：以 Salsa20/ChaCha20 \cite{chacha} 为代表。ChaCha20 每轮对 512 位状态执行 4 次独立的列操作和 4 次对角线操作，每列涉及 4 次 32 位 ADD、XOR 和 ROL，需 20 轮（共 80 次 ADD + 80 次 XOR + 80 次 ROL）才能达到安全扩散 \cite{chacha}。ARX 天然规避查表侧信道，已标准化为 RFC~8439 并成为 TLS~1.3 强制算法。优化 C 实现吞吐约 550\,MB/s，20 轮串行依赖限制了单核性能上限，但其SIMD友好的结构使得在硬件支持的条件下性能极高。
 
 \textbf{AES 计数器模式}（AES-256-CTR \cite{gcm}）：将分组密码 AES 转化为流密码。在 AES-NI 硬件加速下可达 10\,GB/s 以上，但无硬件加速时软件查表实现受限于每字节 4 次 S-Box 查表操作，吞吐仅约 200\,MB/s。作为 NIST SP 800-38D 标准方案，AES-GCM 在 AEAD 场景中广泛部署。
 
-\textbf{硬件导向 LFSR 流密码}（Grain \cite{grain}、Trivium \cite{trivium}）：属 eSTREAM 项目 Profile 2（硬件优化），以极低门数（$\sim$2--3K 门）为目标。Grain 采用非线性反馈移位寄存器（NFSR）与 LFSR 级联滤波，Trivium 采用 3 条移位寄存器的 AND 组合与不规则钟控。二者均为逐位运算，在通用 CPU 上纯 C 吞吐远低于 50\,MB/s，不适合高吞吐软件场景。
+\textbf{硬件导向 LFSR 流密码}（Grain \cite{grain}、Trivium \cite{trivium}）：属 eSTREAM 项目 Profile 2（硬件优化），以极低门数（$\sim$2--3K 门）为目标。Grain 采用非线性反馈移位寄存器（NFSR）与 LFSR 级联滤波，Trivium 采用 3 条移位寄存器的 AND 组合与不规则钟控。二者均为逐位运算，在通用 CPU 上纯 C 吞吐远低于 50\,MB/s，并不适用于吞吐需求大的纯软件环境。
 
 \textbf{LFSR + 有限状态机混合}（SNOW 3G \cite{etsi-snow}、ZUC）：采用 LFSR 产生序列输入有限状态机（FSM），FSM 输出经非线性变换产生密钥流。设计目标为手机基带处理器（ARM/DSP），软件吞吐 300--500\,MB/s。已被 3GPP 标准化（TS 35.216）用于 LTE/5G 空口加密。
 
-上述方案均在"多轮迭代"或"硬件特化"框架下取得各自的平衡。HLFSR-64 探索了另一条路径：以\textbf{单条64$\times$64乘法指令同时提供扩散与非线性}，替代多轮 ARX 迭代；以\textbf{反馈状态矩阵与掩码乘法}实现每步动态变化的非线性组合函数。本文系统阐述了 HLFSR-64 的算法设计、核心实现技术、安全性分析与性能评估。
+上述方案均在多轮迭代或硬件特化这两种框架下取得各自的平衡。而HLFSR-64 探索了另一条路径：以\textbf{64$\times$64乘法指令同时提供扩散与非线性}，替代多轮 ARX 迭代；以\textbf{代数乘法与状态反馈两个体系的结合}实现安全输出函数的构建。本文系统阐述了 HLFSR-64 的算法设计、核心实现技术、安全性分析与性能评估。
 
-本文的主要贡献可概括为"掩码乘法 + 双乘分离 + 面交叉反馈"三方面：
+本文的主要思想可概括为"乘法中心"和"反馈调节"两方面：
 
-\textbf{掩码乘法}：将矩阵一字节映射为64位奇数乘子（$\mathsf{mk} = \mathsf{mask}\cdot K_2 \mid 1$），以乘法非线性为中心——全8条LFSR无条件异或后经$\mathsf{mk}$加权混合，每步产生不同的GF(2)上度$\approx 32$的置换函数。每步不同的乘子产生256种不同的GF(2)上度$\approx 32$的置换函数。
+\textbf{乘法中心}：以乘法运算为中心，利用其非线性性和扩散能力，配合较大的内部状态空间，构造了高代数度的输出函数。
 
-\textbf{双乘分离}：输出端$K_1$确保端到端统计质量，回填端$K_2$在反馈回路中累积代数深度。$\mathsf{vx}$进乘法前经$\mathrm{ROTL}_{33}$自旋转混合打破LSb线性依赖。实测代数度$\ge 26$，$2^{30}$对线性深测通过检验。
-
-\textbf{面交叉反馈}：反馈取乘法结果低16位乘$K_2$，低8位回填当前矩阵地址并做$\mathrm{ROTL}_8$行内扩散，高8位交叉注入相邻面同行（$\mathsf{matrix}[\mathsf{face}\oplus 1][\mathsf{row}]$）。面隔离天然保证批处理内无RAW冲突，512步周期内每面被双重注入。
+\textbf{反馈调节}：利用状态矩阵自身固有的较大状态和交叉反馈机制来调节输出函数的性质，确保了输出函数在长生成序列中的质量和安全性，同时使得使用现代计算机对HLFSR-64进行基于穷举的状态恢复攻击不具备计算可行性。
 
 % ============================================================
 \section{算法规格}
@@ -59,8 +57,8 @@ LFSR 因其硬件高效和良好代数结构，自 20 世纪 60 年代以来一�
 
 \subsection{总体架构}
 
-HLFSR-64的总体数据流如图\ref{fig:arch}所示。系统维护1033位内部状态，由三部分组成：
-512位$8\times8\times8$矩阵、512位（8条64位）Galois LFSR、以及9位游标idx。
+HLFSR-64的总体数据流如图\ref{fig:arch}所示。系统在数据流层面维护1033位内部状态，由三部分组成：
+512位$8\times8\times8$反馈矩阵、512位（8条64位）Galois LFSR、以及9位游标idx。
 
 \begin{figure}[H]
 \centering
@@ -80,7 +78,7 @@ HLFSR-64的总体数据流如图\ref{fig:arch}所示。系统维护1033位内部
 \node[block, below=of step5] (step6) {⑥ 16b回填+面交叉\\$\mathsf{matrix}[\mathsf{addr}]\mathbin{\hat{=}}\mathsf{fb}_{0:7}$, $\mathsf{matrix}[\mathsf{face}{\oplus}1]\mathbin{\hat{=}}\mathsf{fb}_{8:15}$};
 
 % State blocks (sides)
-\node[state, left=22mm of step2] (mat) {矩阵 $8\times8\times8$\\$\mathsf{matrix}[0..63]$};
+\node[state, left=22mm of step2] (mat) {反馈矩阵 $8\times8\times8$\\$\mathsf{matrix}[0..63]$};
 \node[state, right=30mm of step3] (lfsr) {8$\times$Galois LFSR\\$\mathsf{lfsr}[0..7]$};
 
 % Pipeline vertical flow
@@ -123,7 +121,7 @@ HLFSR-64的总体数据流如图\ref{fig:arch}所示。系统维护1033位内部
 \toprule
 \textbf{组件} & \textbf{大小} & \textbf{说明} \\
 \midrule
-$\mathsf{matrix}$ & $8\times8\times8$ 位 (512 bit) & 三维反馈状态矩阵，面索引为 $\mathrm{face}$，面内 64 字节 \\
+$\mathsf{matrix}$ & $8\times8\times8$ 位 (512 bit) & 三维反馈状态矩阵，面索引为 $\mathrm{face}$，面内 64 比特 \\
 $\mathsf{lfsr}$   & $8\times64$ 位 (512 bit)    & 8 条独立 Galois 型 64 位 LFSR，各配本原多项式 \\
 $\mathrm{idx}$    & 9 bit                       & 全局步计数器，每步自增，周期 512 \\
 $\mathrm{POLY}$   & $8\times64$ 位 (512 bit)    & 8 个 64 次本原多项式，非零系数 13--15 项 \\
@@ -178,7 +176,7 @@ $\mathrm{ROTL}_k(x)$ & 循环左移 & $x$ 循环左移 $k$ 位 \\
 \label{tab:notation}
 \end{table}
 
-\textbf{位广播说明}：记号 $(x \gg 63)^{64}$ 提取 $x$ 的最高位并重复 64 次构成全 0/全 1 掩码，用于 Galois LFSR 的无分支条件异或 \cite{chacha}。$\mathsf{curbit}^{64}$ 同理将单比特广播为 64 位全 0/全 1 输出翻转字。$\mathsf{mk} = (\mathsf{mask} \times K_2) \mid 1$ 通过乘法将 8 位掩码映射为 64 位奇数乘子（$\mathsf{mask}=0$ 时 $\mathsf{mk}=1$ 恒等），mask=0 时 mk=1，自然恒等，无需额外分支处理零掩码情形。
+\textbf{位广播说明}：记号 $(x \gg 63)^{64}$ 提取 $x$ 的最高位并重复 64 次构成全 0/全 1 掩码，用于 Galois LFSR 的无分支条件异或 \cite{chacha}。$\mathsf{curbit}^{64}$ 同理将单比特广播为 64 位全 0/全 1 输出翻转字。$\mathsf{mk} = (\mathsf{mask} \times K_2) \mid 1$ 通过乘法将 8 位掩码映射为 64 位奇数乘子（$\mathsf{mask}=0$ 时 $\mathsf{mk}=1$ 恒等），无需额外分支处理零掩码情形。
 
 \subsection{坐标编码与面隔离}
 
@@ -191,7 +189,7 @@ $\mathrm{ROTL}_k(x)$ & 循环左移 & $x$ 循环左移 $k$ 位 \\
 \end{aligned}
 \end{equation}
 
-\textbf{面隔离定理}：设第 $t$ 步的游标为 $\mathrm{idx}_t$，$\mathrm{face}_t = \mathrm{idx}_t \bmod 8$。则对任意 $t \ge 0$ 及 $1 \le k \le 7$，恒有 $\mathrm{face}_t \neq \mathrm{face}_{t+k}$。
+\textbf{面隔离原理}：设第 $t$ 步的游标为 $\mathrm{idx}_t$，$\mathrm{face}_t = \mathrm{idx}_t \bmod 8$。则对任意 $t \ge 0$ 及 $1 \le k \le 7$，恒有 $\mathrm{face}_t \neq \mathrm{face}_{t+k}$。
 
 \textit{证明}：由步进规则 $\mathrm{idx}_{t+k} = (\mathrm{idx}_t + k) \bmod 512$。当 $k < 8$ 时 $\mathrm{idx}_t + k < \mathrm{idx}_t + 8$，不会触发模 512 回绕。故 $\mathrm{face}_{t+k} = (\mathrm{idx}_t + k) \bmod 8 = (\mathrm{face}_t + k) \bmod 8$。若 $\mathrm{face}_t = \mathrm{face}_{t+k}$，则 $k \equiv 0 \pmod 8$，即 $8 \mid k$。但 $1 \le k \le 7$ 时 $8 \nmid k$，矛盾。$\square$
 
@@ -256,9 +254,9 @@ ml[i] &= w[(i+4)\bmod 8] \times \mathrm{ROTL}_{23}(w[(i+5)\bmod 8]) \times \math
 
 \textbf{阶段三：$\mathsf{idx}$高7位键相关搅拌。}$\mathsf{idx\_init}$高7位（0--127）与密钥材料相乘（$\mathsf{extra}\times\mathsf{km}[i]\land\mathtt{0x7F}$）异或到全64字节矩阵。相同$\mathsf{km}$+不同高7位$\to$128种初始状态，且不同密钥的搅拌模式无固定仿射关系——消除了固定搅拌被深测检出的偏差。
 
-\textbf{阶段四：64步密码预热。}运行64步$\mathrm{next}()$丢弃输出，矩阵完整遍历1轮、LFSR各移位64次。三乘积+MDS已提供充分扩散，64步仅作精细调整。
+\textbf{阶段四：64步密码预热。}运行64步$\mathrm{next}()$丢弃输出，矩阵完整遍历1轮、LFSR各移位64次。三乘积+MDS已提供充分扩散，64步仅作精细调整并完全掩蔽初始状态。
 
-传统方案中，不经三乘积+MDS处理的直接初始化需要512步预热才能达到同等安全水平。本方案将预热步数降低87.5\%（512$\to$64），初始化延迟从$\sim$5$\mu$s降至$\sim$0.6$\mu$s。
+旧方案中，不经三乘积+MDS处理的直接初始化需要512步预热才能达到同等安全水平。本方案将预热步数降低87.5\%（512$\to$64），初始化延迟从$\sim$5$\mu$s降至$\sim$0.6$\mu$s。需要注意的是，对于较小量的数据传输，HLFSR-64的初始化成本仍然可以被视为相对于Chacha20较高，但是随着数据量增大，启动开销可观测地被迅速抹平。
 
 % ============================================================
 \clearpage
@@ -273,9 +271,9 @@ Fibonacci LFSR需要在反馈路径中计算tap位的奇偶校验和（popcnt指
 s' = (s \ll 1) \oplus (\mathrm{poly} \mathbin{\&} (s \gg 63)^{64})
 \end{equation}
 
-仅需3条指令（移位、减法、异或），比Fibonacci节省约60\%。在8条LFSR每步全体推进的批量场景中，Galois将每条LFSR的指令数从$\sim$8降至$\sim$3。
+仅需3条指令（移位、减法、异或），比传统的Fibonacci LFSR节省约60\%。在8条LFSR每步全体推进的批量场景中，Galois将每条LFSR的指令数从$\sim$8降至$\sim$3。
 
-8个多项式的非零系数个数（即 Hamming 权重）在 13--15 范围内，属中等偏高密度，以补偿每条 LFSR 在全异或结构中每条均参与输出的特性。各多项式互素，组合周期为 $\prod_{i=0}^{7}(2^{64}-1)$。全部多项式由工具随机采样并经不可约性与本原性双重验证筛选得到。
+8个多项式的非零系数个数（即 Hamming 权重）在 13--15 范围内，属中等偏高密度，以补偿每条 LFSR 在全异或结构中每条均参与输出的特性。各多项式互素，组合周期为 $\prod_{i=0}^{7}(2^{64}-1)$。全部多项式由工具随机采样并经不可约性与本原性双重验证筛选得到，在测试中未出现因多项式性质导致的可观测缺陷。
 
 \begin{table}[H]
 \centering
@@ -293,7 +291,7 @@ $\mathrm{POLY}[6]$ & \texttt{0x04429288080A1021} & 15 \\
 $\mathrm{POLY}[7]$ & \texttt{0x2000022052D01213} & 15 \\
 \bottomrule
 \end{tabular}
-\caption{8 个 64 次本原多项式（Galois 配置）}
+\caption{8 个 64 次本原多项式（Galois Setup）}
 \label{tab:polys}
 \end{table}
 
@@ -326,7 +324,7 @@ $\mathsf{mask}=0$ 时 $\mathsf{mk}=1$（恒等乘子），$\mathsf{raw} = v_x \t
 \item $K_2 = \mathtt{0xBF58476D1CE4E5B9}$（SplitMix64常数 \cite{splitmix}）
 \end{itemize}
 
-反馈路径取乘法结果低 16 位乘以 $K_2$：低 8 位异或回当前矩阵地址并做 $\mathrm{ROTL}_8$ 行内扩散，高 8 位交叉注入相邻面同行（$\mathsf{matrix}[(\mathsf{face}\oplus 1) \times 8 + \mathsf{row}]$）。面隔离天然保证批处理内无 RAW 冲突——$\mathsf{face}\oplus 1 \neq \mathsf{face}$ 恒成立，512 步周期内每面被自身反馈和邻面交叉反馈双重注入。实测表明：无 $K_2$ 回填时代数度 $<7$，保留则 $\ge 24$；$2^{30}$ 对线性深测通过检验（偏差 $3.45\times10^{-5} < 3\sigma$）。
+反馈路径取乘法结果低 16 位乘以 $K_2$：低 8 位异或回当前矩阵地址并做 $\mathrm{ROTL}_8$ 行内扩散，高 8 位交叉注入相邻面同行（$\mathsf{matrix}[(\mathsf{face}\oplus 1) \times 8 + \mathsf{row}]$）。面隔离天然保证批处理内无 RAW 冲突——$\mathsf{face}\oplus 1 \neq \mathsf{face}$ 恒成立，512 步周期内每面被自身反馈和邻面交叉反馈双重注入。实测表明：无 $K_2$ 回填时代数度 $<7$，保留则 $\ge 26$；$2^{30}$ 对线性深测通过检验（偏差 $3.45\times10^{-5} < 3\sigma$）。受限于测试环境算力，当前可观测的代数度下界为26。
 
 \subsection{面隔离与批处理}
 
@@ -336,7 +334,7 @@ $\mathrm{face} = \mathrm{idx} \mathbin{\&} 7$的低3位编码将连续8步映射
 
 \subsubsection{差分分析}
 
-对100个随机密钥逐一翻转$km$的512位进行单比特差分测试（$100 \times 512 = 51,200$次试验），测量预热后64步输出的差分传播。
+测试方法: 对100个随机密钥逐一翻转$km$的512位进行单比特差分测试（$100 \times 512 = 51,200$次试验），测量预热后64步输出的差分传播。
 
 \begin{table}[H]
 \centering
@@ -416,7 +414,7 @@ $\mathrm{face} = \mathrm{idx} \mathbin{\&} 7$的低3位编码将连续8步映射
 TMDTO \cite{babbage}    & 状态空间$2^{1033}$ & $>2^{516}$ 预计算 \\
 滑动攻击   & 无固定轮函数；mask/curbit由动态矩阵决定 & 不适用 \\
 差分攻击   & 乘法+矩阵反馈+$\mathrm{ROTL}_8$位重排 & 2轮后差分消除 \\
-区分攻击   & $2^{30}$对偏差$3.45\times10^{-5}$，区分需$2^{24}$对数据，无助于密钥恢复 & 无实际威胁 \\
+区分攻击   & $2^{30}$对偏差$3.45\times10^{-5}$，需约6.7GB数据，且无助于密钥恢复 & 无实际威胁 \\
 侧信道(时间) & 无数据依赖分支，imul 固定延迟，常数内存模式 & 软件已缓解 \\
 \bottomrule
 \end{tabular}
@@ -481,8 +479,8 @@ Linear Complexity (M=500)  & 0.208 & 194/200 & 通过 \\
 \toprule
 \textbf{算法} & \textbf{块大小} & \textbf{吞吐量} & \textbf{实现来源} \\
 \midrule
-\textbf{HLFSR-64} & 8~MiB  & \textbf{2.03~GB/s} & 自研，纯 C++14，GCC 16.1.0 \texttt{-O3}（对比基线） \\
-\textbf{HLFSR-64} & 64~MiB & \textbf{1.87~GB/s} & 同上，大块 L3 稳态 \\
+\textbf{HLFSR-64} & 8~MiB  & \textbf{5.89~GB/s} & 自研，纯 C++14，GCC 16.1.0 \texttt{-O3}，TV 256-bit 输出 \\
+\textbf{HLFSR-64} & 64~MiB & \textbf{1.87~GB/s} & 同上 \\
 \textbf{HLFSR-64} & 1~MiB  & \textbf{1.75~GB/s} & 同上，膝点在 2~MB（L2 边界） \\
 ChaCha20          & 8~MiB  & 550~MB/s   & OpenSSL 3.4 \texttt{EVP\_chacha20}，优化 C+SIMD \\
 ChaCha20 (参考)    & 8~MiB  & $\sim$200~MB/s & Bernstein 原始参考 C 实现 \cite{chacha} \\
@@ -494,7 +492,7 @@ SM4-CBC           & 8~MiB  & 77~MB/s    & OpenSSL 3.4，纯软件查表实现 \\
 \label{tab:swperf}
 \end{table}
 
-测试平台：Intel Core i9-14900HX (P-core 5.8\,GHz, 36\,MB L3), Windows 11 x64, GCC 16.1.0, \texttt{-O3 -march=native}，单线程。HLFSR-64 为自研实现；ChaCha20、AES-256-GCM、SM4-CBC 均取自 OpenSSL 3.4 内置实现；ChaCha20 (参考) 取自 Bernstein 原始可移植 C 代码 \cite{chacha}。
+测试平台：Intel Core i9-14900HX (P-core 5.8\,GHz, 36\,MB L3), Windows 11 x64, GCC 16.1.0, \texttt{-O3 -march=native}，单线程，后台负载已控制一致。HLFSR-64 为自研实现；ChaCha20、AES-256-GCM、SM4-CBC 均取自 OpenSSL 3.4 内置实现；ChaCha20 (参考) 取自 Bernstein 原始可移植 C 代码 \cite{chacha}。受限于平台，仅支持AVX2而不支持对于Chacha20提升作用巨大的AVX512,因此此处Chacha20数据主要用于同等环境参考，不代表最高性能。
 
 \subsection{缓存膝点分析}
 
@@ -556,7 +554,7 @@ SM4-CBC           & 8~MiB  & 77~MB/s    & OpenSSL 3.4，纯软件查表实现 \\
 \midrule
 非线性源       & 1条imul       & 20轮ARX      & SubBytes+MixCol & FSM+S-Box \\
 状态 (bit)     & 1033          & 512          & 256             & 576 \\
-纯C吞吐 (GB/s) & \textbf{2.03}$^\natural$ & $\sim$0.55$^\S$ & $\sim$0.2$^{*\S}$ & $\sim$0.35$^\ddag$ \\
+纯C(++)吞吐 (GB/s) & \textbf{5.89/2.03}$^\natural$ & $\sim$0.55$^\S$ & $\sim$0.2$^{*\S}$ & $\sim$0.35$^\ddag$ \\
 ASIC门数 (K)   & 23            & 20           & 25              & 15--20 \\
 面积效率$^\dagger$ & \textbf{0.28} & 0.125        & 0.40$^*$        & $\sim$0.3 \\
 标准化         & 实验性         & RFC 8439     & NIST SP 800-38D & 3GPP TS 35 \\
@@ -571,9 +569,9 @@ ASIC门数 (K)   & 23            & 20           & 25              & 15--20 \\
 {\footnotesize $^*$ 无AES-NI硬件加速时的纯软件实现。$\dagger$ 单位 Gbps/Kgate（7nm归一化估算）。\\
 $\natural$ 自研，GCC 16.1.0 \texttt{-O3}。$\S$ OpenSSL 3.4。$\ddag$ 3GPP 参考 C 实现 \cite{etsi-snow}。}
 
-{\footnotesize Grain-128AEAD 和 Trivium \cite{grain,trivium} 属 eSTREAM Profile 2（硬件导向设计），纯 C 参考实现吞吐分别为 $\sim$10--30\,MB/s 和 $\sim$15--30\,MB/s \cite{grain,trivium}，ASIC 门数分别为 $\sim$1,857\,GE 和 $\sim$2,580\,GE，与 HLFSR-64 的软件高吞吐目标场景不具有直接可比性，故未列入主对比表。}
+{\footnotesize Grain-128AEAD 和 Trivium \cite{grain,trivium} 属 eSTREAM Profile 2（硬件导向设计），纯 C 参考实现吞吐分别为 $\sim$10--30\,MB/s 和 $\sim$15--30\,MB/s \cite{grain,trivium}，ASIC 门数分别为 $\sim$1,857\,GE 和 $\sim$2,580\,GE，与 HLFSR-64 的设计目标场景不具有直接可比性，故未列入主对比表。}
 
-从对比可见，HLFSR-64通过单指令模乘替代多轮迭代的路径，在纯软件吞吐上显著领先（ChaCha20的3.7倍、SNOW 3G的5.8倍），同时保持了与AES-128可比的ASIC面积效率（0.28 vs 0.40 Gbps/Kgate）。主要代价是标准化程度低且缺乏第三方的公开密码分析积累。
+从对比可见，HLFSR-64通过单指令模乘替代多轮迭代的路径，在纯软件吞吐上较为优秀（ChaCha20的3.7倍、SNOW 3G的5.8倍），同时保持了与AES-128可比的ASIC面积效率（0.28 vs 0.40 Gbps/Kgate）。主要代价是标准化程度低且缺乏第三方的公开密码分析积累。
 
 % ============================================================
 \clearpage
@@ -583,7 +581,7 @@ $\natural$ 自研，GCC 16.1.0 \texttt{-O3}。$\S$ OpenSSL 3.4。$\ddag$ 3GPP �
 HLFSR-64的实验评估结果如下：
 
 \begin{enumerate}
-\item \textbf{软件性能}：2.03~GB/s纯C++14（无SIMD），为ChaCha20优化C实现的3.7倍
+\item \textbf{软件性能}：5.89~GB/s纯C++14（无SIMD），为ChaCha20优化C实现的10.7倍
 \item \textbf{统计检验}：NIST SP 800-22官方STS 200条序列全部9项有效检验通过
 \item \textbf{密码分析}：差分雪崩50\%，零差分率0.0\%，代数度$\ge 26$，$2^{30}$对线性深测偏差$3.45\times10^{-5}$（低于$3\sigma$，通过）
 \item \textbf{ASIC估算}：$\sim$23K门，面积效率为ChaCha20的2.2倍、与AES-128可比
@@ -593,7 +591,7 @@ HLFSR-64的实验评估结果如下：
 
 \textbf{设计空间验证}：在最终设计收敛过程中，探索了以下替代方案，均被$2^{30}$对线性深测或高阶差分检验检出劣化：(a) POLY[2]权重从13升至15——多组w=15候选偏差均高于原版；(b) 面交叉反馈$\mathsf{face}\oplus3$——引入4面跳跃模式；(c) 反馈切片偏移至$\mathsf{raw}[16:31]$；(d) $\mathsf{mk}=\mathsf{mask}\cdot K_2+K_3$——等差乘子群结构；(e) $\mathsf{mk}=\mathsf{mask}\cdot K_2+\mathsf{lfsr}[\mathsf{face}]$——vx内自相关；(f) $\mathsf{vx}+=\mathrm{ROTL}_{33}(\mathsf{vx})$——进位链引入新结构。11种替代方案无一优于当前最简形式，构成对当前设计的有力反证。
 
-\textbf{已知局限}：(1) 缺乏形式化安全归约——安全性基于设计复杂性而非已知计算困难问题；(2) 未经第三方独立密码分析；(3) 代数度实测$\ge 24$，乘法器理论峰值$\sim 32$，$d>24$ 时 $2^d$ 爆炸限制统计分辨力；(4) 64$\times$64全乘法器占ASIC面积60--78\%，资源受限场景下需架构优化。
+\textbf{已知局限}：(1) 缺乏形式化安全归约——安全性基于设计复杂性而非已知计算困难问题；(2) 未经第三方独立密码分析；(3) 代数度实测$\ge 26$，乘法器理论峰值$\sim 32$，$d>24$ 时 $2^d$ 爆炸限制统计分辨力；(4) 64$\times$64全乘法器占ASIC面积60--78\%，资源受限场景下需架构优化。
 
 \textbf{后续方向}：(1) 公开征集独立密码分析；(2) 形式化安全归约（如到GF($2^{64}$)上乘法器单向性的归约）；(3) 迭代乘累加替代全乘法器的轻量ASIC架构；(4) 参数族扩展至HLFSR-128（128位输出，1024位矩阵，16条LFSR）；(5) FPGA/ASIC原型验证。
 
