@@ -1,8 +1,6 @@
-// hlfsr64.cpp — HLFSR-64 流密码核心
 #include "hlfsr64.hpp"
 #include <cstring>
 
-// 8 个 64 次本原多项式，权重 13--15
 const hlfsr64::u64 hlfsr64::POLY[8] = {
     0x4800203343401101ULL, 0x0416001300480117ULL,
     0x58000C0310100803ULL,
@@ -50,7 +48,6 @@ void hlfsr64::init(const u8 km[64], u16 idx_init) {
     }
     std::memcpy(m_matrix, mm, 64);
     std::memcpy(m_lfsr,   ml, 64);
-    // idx 高 7 位搅拌: km 键相关, 消除全局仿射偏移
     {
         u8 extra = (u8)(idx_init >> 9);
         for (int i = 0; i < 64; i++)
@@ -59,9 +56,6 @@ void hlfsr64::init(const u8 km[64], u16 idx_init) {
     for (int i = 0; i < 64; i++) next();
 }
 
-// ============================================================
-// advance_lfsr: 全 LFSR XOR + vx 自旋转 + mask 乘法调味
-// ============================================================
 hlfsr64::u64 hlfsr64::advance_lfsr(u8 mask_byte, u16 step_idx) {
     u64 vx = 0;
     for (int i = 0; i < 8; i++) {
@@ -75,9 +69,6 @@ hlfsr64::u64 hlfsr64::advance_lfsr(u8 mask_byte, u16 step_idx) {
     return (vx * mk) * 0x9E3779B97F4A7C15ULL;
 }
 
-// ============================================================
-// next + keystream
-// ============================================================
 hlfsr64::u64 hlfsr64::next() {
     u8  face = (u8)(m_idx & 7);
     u8  row  = (u8)((m_idx >> 3) & 7);
@@ -92,7 +83,6 @@ hlfsr64::u64 hlfsr64::next() {
     u64 raw    = advance_lfsr(mask, m_idx);
     u64 output = raw ^ (0ULL - curbit);
 
-    // 16b 反馈: raw 高 16 位（进位累积度最高），低 8 位回填，高 8 位打邻面
     u64 fb = ((raw >> 48) & 0xFFFF) * 0xBF58476D1CE4E5B9ULL;
     u8   fb_lo = (u8)(fb & 0xFF);
     m_matrix[ba] ^= fb_lo;
@@ -100,13 +90,11 @@ hlfsr64::u64 hlfsr64::next() {
     u8 nb = (u8)(((face ^ 1) & 7) * 8 + row);
     m_matrix[nb] ^= (u8)(fb >> 8);
 
-    // idx: 低 9b 计数 + 高 7b 存 seasoning 反馈态
     m_idx = (m_idx & 0xFE00) | (((m_idx & 0x1FF) + 1) & 0x1FF);
     m_idx = (m_idx & 0x1FF) | ((u16)(fb_lo & 0x7F) << 9);
     return output;
 }
 
-// 256-bit 输出: raw × ROTL33(K₃ × TV[i]), TV[i] = LFSR × matrix 交叉 + 7-bit 调味
 void hlfsr64::next256(u64 out[4]) {
     u8  face = (u8)(m_idx & 7);
     u8  row  = (u8)((m_idx >> 3) & 7);
@@ -120,18 +108,16 @@ void hlfsr64::next256(u64 out[4]) {
 
     u64 raw = advance_lfsr(mask, m_idx);
 
-    // TV: seasoning = mask XOR idx 高 7b（上一轮反馈态），|1 保奇
     u8 season = (mask ^ (u8)(m_idx >> 9)) | 1;
     u64 tv = m_lfsr[face] * (u64)m_matrix[ba] * season;
-    u64 t  = tv * 0x94D049BB133111EBULL;           // K₃
-    t = (t << 33) | (t >> 31);                     // ROTL33
+    u64 t  = tv * 0x94D049BB133111EBULL;
+    t = (t << 33) | (t >> 31);
     u64 c  = 0ULL - curbit;
     out[0] = (raw * t) ^ c ^ m_lfsr[face];
     out[1] = (raw * ((t << 17) | (t >> 47))) ^ c ^ m_lfsr[(face+2)&7];
     out[2] = (raw * ((t << 34) | (t >> 30))) ^ c ^ m_lfsr[(face+4)&7];
     out[3] = (raw * ((t << 51) | (t >> 13))) ^ c ^ m_lfsr[(face+6)&7];
 
-    // 反馈: raw 高 16 位，低 8 位回填 + 写 idx 高 7b 供下轮 seasoning
     u64 fb = ((raw >> 48) & 0xFFFF) * 0xBF58476D1CE4E5B9ULL;
     u8   fb_lo = (u8)(fb & 0xFF);
     m_matrix[ba] ^= fb_lo;
@@ -178,7 +164,6 @@ void hlfsr64::keystream(void* out, std::size_t bytes) {
             m_matrix[addr]  = rol8(m_matrix[addr], pv[i] & 7);
             m_matrix[nb8[i]] ^= (u8)(fb >> 8);
         }
-        // 最后一步的 fb_lo 写入 idx 高 7b 供下轮 seasoning
         {
             u64 fb_last = ((raw[7] >> 48) & 0xFFFF) * 0xBF58476D1CE4E5B9ULL;
             m_idx = (m_idx & 0xFE00) | (((m_idx & 0x1FF) + 8) & 0x1FF);
@@ -195,7 +180,6 @@ void hlfsr64::keystream(void* out, std::size_t bytes) {
     if (bytes > 0) { u64 b = next(); for (std::size_t i=0;i<bytes;i++) p[i]=(u8)(b>>(i*8)); }
 }
 
-// 256-bit 批量密钥流 (next256 循环)
 void hlfsr64::keystream256(void* out, std::size_t bytes) {
     u8* p = static_cast<u8*>(out);
     while (bytes >= 32) {

@@ -22,7 +22,7 @@
 \maketitle
 
 \begin{abstract}
-HLFSR-64是一种面向软件性能优化的流密码，采用$8\times8\times8$位反馈矩阵、8条64位Galois LFSR和16位步计数器（低9位计数+高7位存反馈调味态）作为状态。每步推进全部LFSR后全异或得$v_x$，经$\mathrm{ROTL}_{33}$自旋转与掩码派生的奇数乘子级联相乘产生$\mathsf{raw}$。256位输出通过单次额外乘法派生：LFSR与矩阵状态交叉，经动态seasoning调味后乘$K_3$，以不同旋转量生成4路乘子分别与$\mathsf{raw}$相乘，各路异或不同LFSR值消除派生相关性。反馈为$\mathsf{raw}$高16位（$[63:48]$，进位累积度最大）乘$K_2$后低8位回填当前面、高8位注入相邻面，低7位写入idx高半部分供下一步动态调味。初始化采用三乘积+MDS over $\mathrm{GF}(2^8)$+键相关搅拌+64步预热。纯C++14实现（GCC -O3，无SIMD）在i9-14900HX上达到5.84~GB/s。NIST SP 800-22全部通过，差分雪崩50\%、零差率0.0\%、代数度$\ge 26$，$2^{30}$对线性深测偏差$3.45\times10^{-5}$（$<3\sigma$）。
+HLFSR-64是一种面向软件性能优化的流密码，采用$8\times8\times8$位反馈矩阵、8条64位Galois LFSR和16位步计数器（低9位计数+高7位存反馈态）作为状态。每步推进全部LFSR后全异或得$v_x$，经$\mathrm{ROTL}_{33}$自旋转与掩码派生的奇数乘子级联相乘产生$\mathsf{raw}$。256位输出通过单次额外乘法派生：LFSR与矩阵状态交叉，经动态调节后乘$K_3$，以不同旋转量生成4路乘子分别与$\mathsf{raw}$相乘，各路异或不同LFSR值消除派生相关性。反馈为$\mathsf{raw}$高16位（$[63:48]$，进位累积度最大）乘$K_2$后低8位回填当前面、高8位注入相邻面，低7位写入idx高半部分供下一步动态调节。初始化采用三乘积+MDS over $\mathrm{GF}(2^8)$+键相关搅拌+64步预热。纯C++14实现（GCC -O3，无SIMD）在i9-14900HX上达到5.84~GB/s。NIST SP 800-22全部通过，差分雪崩50\%、零差率0.0\%、代数度$\ge 26$，$2^{30}$对线性深测偏差$3.45\times10^{-5}$（$<3\sigma$）。
 
 \textbf{关键词}：流密码；线性反馈移位寄存器；乘性混合；TV扩展；MDS矩阵
 \end{abstract}
@@ -58,7 +58,7 @@ LFSR 因其硬件高效和良好代数结构，自 20 世纪 60 年代以来一�
 \subsection{总体架构}
 
 HLFSR-64的总体数据流如图\ref{fig:arch}所示。系统在数据流层面维护1040位内部状态，由三部分组成：
-512位$8\times8\times8$反馈矩阵、512位（8条64位）Galois LFSR、以及16位游标idx（低9位计数+高7位存反馈调味态）。
+512位$8\times8\times8$反馈矩阵、512位（8条64位）Galois LFSR、以及16位游标idx（低9位计数+高7位存反馈态）。
 
 \begin{figure}[H]
 \centering
@@ -125,7 +125,7 @@ HLFSR-64的总体数据流如图\ref{fig:arch}所示。系统在数据流层面�
 \midrule
 $\mathsf{matrix}$ & $8\times8\times8$ 位 (512 bit) & 三维反馈状态矩阵，面索引为 $\mathrm{face}$，面内 64 比特 \\
 $\mathsf{lfsr}$   & $8\times64$ 位 (512 bit)    & 8 条独立 Galois 型 64 位 LFSR，各配本原多项式 \\
-$\mathrm{idx}$    & 16 bit & 低9位计数(0--511)，高7位存反馈调节态 \\
+$\mathrm{idx}$    & 16 bit & 低9位计数(0--511)，高7位存反馈态 \\
 $\mathrm{POLY}$   & $8\times64$ 位 (512 bit)    & 8 个 64 次本原多项式，非零系数 13--15 项 \\
 \bottomrule
 \end{tabular}
@@ -139,7 +139,7 @@ $\mathrm{POLY}$   & $8\times64$ 位 (512 bit)    & 8 个 64 次本原多项式�
 \toprule
 \textbf{符号} & \textbf{位宽} & \textbf{含义} \\
 \midrule
-$\mathrm{idx}$   & 16 bit & 低9位步计数(0--511)，高7位存反馈调味态 \\
+$\mathrm{idx}$   & 16 bit & 低9位步计数(0--511)，高7位存反馈态 \\
 $\mathrm{face}$  & 3 bit  & 面号，$\mathrm{idx} \bmod 8$ \\
 $\mathrm{row}$   & 3 bit  & 行号，$(\mathrm{idx} \gg 3) \bmod 8$ \\
 $\mathrm{col}$   & 3 bit  & 列号，$(\mathrm{idx} \gg 6) \bmod 8$ \\
@@ -335,7 +335,7 @@ $\mathsf{mask}=0$ 时 $\mathsf{mk}=1$（恒等乘子），$\mathsf{raw} = v_x \t
 \item $K_3 = \mathtt{0x94D049BB133111EB}$（MurmurHash3）——TV派生，单次乘法扩展至256位
 \end{itemize}
 
-\textbf{反馈路径}：取 $\mathsf{raw}$ 高 16 位（$[63:48]$，进位累积度最大）乘 $K_2$，低 8 位异或回当前矩阵地址并做 $\mathrm{ROTL}_8$ 行内扩散，高 8 位交叉注入相邻面同行；低 7 位同时写入 $\mathsf{idx}[15:9]$ 供下一步 TV seasoning 动态调味。面隔离天然保证批处理内无 RAW 冲突，512 步周期内每面受双重注入。实测无 $K_2$ 回填时代数度 $<7$，保留则 $\ge 26$；$2^{30}$ 对线性深测偏差 $3.45\times10^{-5} < 3\sigma$。
+\textbf{反馈路径}：取 $\mathsf{raw}$ 高 16 位（$[63:48]$，进位累积度最大）乘 $K_2$，低 8 位异或回当前矩阵地址并做 $\mathrm{ROTL}_8$ 行内扩散，高 8 位交叉注入相邻面同行；低 7 位同时写入 $\mathsf{idx}[15:9]$ 供下一步 TV 动态调节。面隔离天然保证批处理内无 RAW 冲突，512 步周期内每面受双重注入。实测无 $K_2$ 回填时代数度 $<7$，保留则 $\ge 26$；$2^{30}$ 对线性深测偏差 $3.45\times10^{-5} < 3\sigma$。
 
 \textbf{TV派生}：取 $\mathsf{season} = (\mathsf{mask} \oplus (\mathsf{idx} \gg 9)) \mid 1$（256种动态变体），将 $\mathsf{lfsr}[\mathsf{face}]$、$\mathsf{matrix}[\mathsf{addr}]$ 与 $\mathsf{season}$ 的乘积经 $K_3$ 乘法和 $\mathrm{ROTL}_{33}$ 产生 $\mathsf{tv}$，以4种旋转量（$+0, +17, +34, +51$）派生4路乘子分别与同一 $\mathsf{raw}$ 相乘，各路异或不同 LFSR 值消除旋转派生相关性。$\mathsf{idx}$ 高7位每步由反馈低字节更新，使 $\mathsf{season}$ 每步独立变化（旧版仅 $( \mathsf{mask} \land \mathtt{0x7F}) \mid 1$，128种静态值）。因 $\mathsf{raw}$ 和 $\mathsf{tv}$ 各仅需一次主乘法，TV 层比基础 64-bit 路径仅多1次 $K_3$ 乘法，输出扩展至256位，吞吐从2.03 GB/s提升至5.84 GB/s。
 

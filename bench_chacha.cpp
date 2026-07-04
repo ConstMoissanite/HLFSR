@@ -1,7 +1,4 @@
-// bench_chacha.cpp — ChaCha20 AVX2 带宽测试 (OpenSSL EVP, 多块大小)
-// 编译: g++ -std=c++14 -O3 -march=native bench_chacha.cpp -lssl -lcrypto -o bench_chacha
 #include <openssl/evp.h>
-#include <openssl/rand.h>
 #include <chrono>
 #include <cstdio>
 #include <cstdlib>
@@ -16,7 +13,6 @@ int main(int argc, char* argv[]) {
         sizes[0] = atoi(argv[1]);
         n_sizes  = 1;
     }
-    int runs = (argc > 2) ? atoi(argv[2]) : 5;
 
     printf("ChaCha20 AVX2 raw encryption throughput (OpenSSL EVP)\n");
     printf("  Block   GB/s\n");
@@ -24,15 +20,13 @@ int main(int argc, char* argv[]) {
     for (int si = 0; si < n_sizes; si++) {
         size_t kb    = sizes[si];
         size_t chunk = (size_t)kb * 1024;
-        // ~256 MB total per block size
         size_t total_bytes = 256ULL * MiB;
         if (total_bytes < chunk * 2) total_bytes = chunk * 2;
         unsigned char* buf = new unsigned char[total_bytes];
         unsigned char key[32], iv[12];
-        memset(key, 0x55, 32);  // deterministic
+        memset(key, 0x55, 32);
         memset(iv, 0, 12);
 
-        // Warmup
         {
             EVP_CIPHER_CTX *ctx = EVP_CIPHER_CTX_new();
             EVP_EncryptInit_ex(ctx, EVP_chacha20(), nullptr, key, iv);
